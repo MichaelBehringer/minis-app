@@ -1,0 +1,27 @@
+version: '3'
+services:
+  server:
+    build: server
+    deploy:
+      mode: replicated
+      replicas: 1
+    restart: always
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
+  ui:
+    build: ui
+    deploy:
+      mode: replicated
+      replicas: 1
+    restart: always
+  nginx:
+    image: nginx:alpine
+    volumes:
+     - ./conf.d:/etc/nginx/conf.d
+     - ./certs:/etc/nginx/certs
+    ports:
+    - "33333:33333"
+    depends_on:
+      - ui
+      - server
+    restart: always
