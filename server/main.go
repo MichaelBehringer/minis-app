@@ -16,7 +16,7 @@ func main() {
 	router.Use(cors.New(config))
 	router.GET("/test", test)
 
-	router.Run("localhost:8080")
+	router.Run(":8080")
 }
 
 func test(c *gin.Context) {
