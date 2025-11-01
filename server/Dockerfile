@@ -1,5 +1,5 @@
 # Erstellen Sie ein temporäres Build-Image
-FROM golang:1.25.5 AS build
+FROM golang:1.25.3 AS build
 
 WORKDIR /app
 
