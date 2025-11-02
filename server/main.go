@@ -2,7 +2,7 @@ package main
 
 import (
 	. "minisAPI/controller"
-	// . "minisAPI/middleware"
+	. "minisAPI/middleware"
 	. "minisAPI/models"
 	"net/http"
 
@@ -21,6 +21,7 @@ func main() {
 
 	router.Use(cors.New(config))
 	router.POST("/login", login)
+	router.GET("/checkToken", AuthUser(), checkToken)
 
 	router.Run("localhost:8080")
 }
@@ -30,4 +31,9 @@ func login(c *gin.Context) {
 	c.BindJSON(&login)
 	retJWT := DoLogin(login, c)
 	c.IndentedJSON(http.StatusOK, retJWT)
+}
+
+func checkToken(c *gin.Context) {
+	tokenRes := CheckToken(c)
+	c.IndentedJSON(http.StatusOK, tokenRes)
 }

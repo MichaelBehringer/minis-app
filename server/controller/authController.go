@@ -34,13 +34,13 @@ func DoLogin(login Login, c *gin.Context) AccessToken {
 	return AccessToken{AccessToken: s}
 }
 
-// func CheckToken(c *gin.Context) AuthPerson {
-// 	_, claims := ExtractToken(c)
-// 	username, _ := claims["user"].(string)
-// 	var person AuthPerson
-// 	ExecuteSQLRow("SELECT CONCAT(FIRSTNAME, ' ', LASTNAME), PERS_NO, FUNCTION_NO FROM pers WHERE USERNAME=?", username).Scan(&person.Username, &person.PersNo, &person.FunctionNo)
-// 	return person
-// }
+func CheckToken(c *gin.Context) PersonHead {
+	_, claims := ExtractToken(c)
+	username, _ := claims["user"].(string)
+	var person PersonHead
+	ExecuteSQLRow("SELECT CONCAT(FIRSTNAME, ' ', LASTNAME), id, ROLE_ID FROM user WHERE USERNAME=?", username).Scan(&person.Name, &person.Id, &person.RoleId)
+	return person
+}
 
 func ExtractToken(c *gin.Context) (bool, jwt.MapClaims) {
 	h := AuthHeader{}

@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { Form, Input, Button, Checkbox, Card, Row, Col, Typography } from 'antd';
+import { Form, Input, Button, Checkbox, Card, Row, Col, Typography, App as AntdApp } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { doPostRequest } from '../helper/RequestHelper';
-import { toastError } from '../helper/ToastHelper';
 import './Authentication.css';
 
 const { Title } = Typography;
 
 function Authentication(props) {
+	const { message } = AntdApp.useApp();
 	const navigate = useNavigate();
 	const [loading, setLoading] = useState(false);
 
@@ -16,13 +16,17 @@ function Authentication(props) {
 		setLoading(true);
 		const params = { username: values.username, password: values.password };
 		doPostRequest("login", params).then((response) => {
+			console.log('a')
 			setLoading(false);
 			props.setToken(response.data.accessToken, values.remember);
 			navigate("/")
 		}, error => {
+			console.log('b')
+			console.log(error.response.status)
 			setLoading(false);
 			if (error.response.status === 401) {
-				toastError('Benutzername oder Passwort falsch!');
+				console.log('bs')
+				message.error('Benutzername oder Passwort falsch!');
 			}
 			return error;
 		});
@@ -53,10 +57,10 @@ function Authentication(props) {
 								rules={[{ required: true, message: 'Bitte Benutzernamen angeben!' }]}
 							>
 								<Input
-  className="login-input"
-  prefix={<UserOutlined className="site-form-item-icon" />}
-  placeholder="Benutzername"
-/>
+									className="login-input"
+									prefix={<UserOutlined className="site-form-item-icon" />}
+									placeholder="Benutzername"
+								/>
 
 							</Form.Item>
 							<Form.Item
@@ -64,11 +68,11 @@ function Authentication(props) {
 								rules={[{ required: true, message: 'Bitte Passwort angeben!' }]}
 							>
 								<Input
-  className="login-input"
-  prefix={<LockOutlined className="site-form-item-icon" />}
-  type="password"
-  placeholder="Passwort"
-/>
+									className="login-input"
+									prefix={<LockOutlined className="site-form-item-icon" />}
+									type="password"
+									placeholder="Passwort"
+								/>
 							</Form.Item>
 							<Form.Item>
 								<Form.Item name="remember" valuePropName="checked" noStyle>
