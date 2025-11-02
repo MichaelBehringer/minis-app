@@ -1,6 +1,9 @@
 package main
 
 import (
+	. "minisAPI/controller"
+	// . "minisAPI/middleware"
+	. "minisAPI/models"
 	"net/http"
 
 	"github.com/gin-contrib/cors"
@@ -8,17 +11,23 @@ import (
 )
 
 func main() {
+	InitDB()
+	defer CloseDB()
+
 	router := gin.Default()
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
 	config.AllowHeaders = []string{"Content-Type", "Content-Length", "Accept-Encoding", "Authorization", "Cache-Control"}
 
 	router.Use(cors.New(config))
-	router.GET("/test", test)
+	router.POST("/login", login)
 
-	router.Run(":8080")
+	router.Run("localhost:8080")
 }
 
-func test(c *gin.Context) {
-	c.String(http.StatusOK, "hello world")
+func login(c *gin.Context) {
+	var login Login
+	c.BindJSON(&login)
+	retJWT := DoLogin(login, c)
+	c.IndentedJSON(http.StatusOK, retJWT)
 }
