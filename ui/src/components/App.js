@@ -7,18 +7,18 @@ import { doGetRequestAuth } from '../helper/RequestHelper';
 import { App as AntdApp } from 'antd';
 
 import './App.css';
+import Home from './Home';
 
 const { Header, Content } = Layout;
 
-function Home() { return <h2>Home</h2>; }
 function Stammdaten() { return <h2>Stammdaten</h2>; }
 function Einteilung() { return <h2>Einteilung</h2>; }
 
 function App(props) {
   const { message } = AntdApp.useApp();
-  const [loggedUserId, setLoggedUserId] = useState();
-  const [loggedRoleId, setLoggedRoleId] = useState();
-  const [loggedInitials, setLoggedInitials] = useState();
+  const [userId, setUserId] = useState();
+  const [roleId, setRoleId] = useState();
+  const [initials, setInitials] = useState();
 
   const navigate = useNavigate();
   const isCompactMasterData = useMediaQuery({ maxWidth: 430 });
@@ -27,9 +27,9 @@ function App(props) {
   useEffect(() => {
     doGetRequestAuth('checkToken', props.token).then((res) => {
       message.info('Hallo ' + res.data.name);
-      setLoggedInitials(res.data.name.split(' ').map(word => word[0]).join(''));
-      setLoggedUserId(res.data.id);
-      setLoggedRoleId(res.data.roleId);
+      setInitials(res.data.name.split(' ').map(word => word[0]).join(''));
+      setUserId(res.data.id);
+      setRoleId(res.data.roleId);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -43,7 +43,7 @@ function App(props) {
     },
   ];
 
-  if (loggedRoleId === 2 || loggedRoleId === 3) {
+  if (roleId === 2 || roleId === 3) {
     menuItems.push(
       {
         key: '2',
@@ -68,6 +68,8 @@ function App(props) {
   };
 
   return (
+    <div>
+      {(userId && roleId) ? (
       <Layout>
         <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
 
@@ -85,8 +87,8 @@ function App(props) {
             <Space style={{ color: '#fff', cursor: 'pointer' }}>
               <UserOutlined />
               
-                <Tooltip title={loggedInitials}>
-                  <span>{loggedInitials}</span>
+                <Tooltip title={initials}>
+                  <span>{initials}</span>
                 </Tooltip>
             </Space>
           </Dropdown>
@@ -95,8 +97,8 @@ function App(props) {
 
         <Content style={{ padding: '20px' }}>
           <Routes>
-            <Route path="/" element={<Home />} />
-            {(loggedRoleId === 2 || loggedRoleId === 3) && (
+            <Route path="/" element={<Home userId={userId} token={props.token}/>} />
+            {(roleId === 2 || roleId === 3) && (
               <>
                 <Route path="/stammdaten" element={<Stammdaten />} />
                 <Route path="/einteilung" element={<Einteilung />} />
@@ -105,6 +107,10 @@ function App(props) {
           </Routes>
         </Content>
       </Layout>
+      ) : (
+        <div>Daten werden geladen</div>
+      )}
+    </div>
   );
 }
 

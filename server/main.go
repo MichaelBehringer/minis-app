@@ -23,6 +23,8 @@ func main() {
 	router.POST("/login", login)
 	router.GET("/checkToken", AuthUser(), checkToken)
 
+	router.GET("/events/:userId", AuthUser(), getEventsForUser)
+
 	router.Run("localhost:8080")
 }
 
@@ -36,4 +38,10 @@ func login(c *gin.Context) {
 func checkToken(c *gin.Context) {
 	tokenRes := CheckToken(c)
 	c.IndentedJSON(http.StatusOK, tokenRes)
+}
+
+func getEventsForUser(c *gin.Context) {
+	userId := c.Param("userId")
+	events := GetEventsForUser(userId)
+	c.IndentedJSON(http.StatusOK, events)
 }
