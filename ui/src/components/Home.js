@@ -10,7 +10,7 @@ export default function Home({ userId, token }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("calendar");
-
+  
   useEffect(() => {
     async function loadEvents() {
       setLoading(true);
@@ -22,7 +22,7 @@ export default function Home({ userId, token }) {
       }
     }
     loadEvents();
-  }, [userId, token, doGetRequestAuth]);
+  }, [userId, token]);
 
   // Kalender-Event-Renderer
   const dateCellRender = (value) => {
@@ -30,13 +30,19 @@ export default function Home({ userId, token }) {
     const todaysEvents = events.filter((e) => e.dateBegin === dateStr);
 
     return (
-      <ul className="px-1 m-0 list-none">
-        {todaysEvents.map((ev) => (
-          <li key={ev.id} className="text-xs truncate">
-            • {ev.name} ({ev.timeBegin})
-          </li>
-        ))}
-      </ul>
+      todaysEvents.length !== 0 ? 
+      <div style={{width: '100%', height: '100%', backgroundColor: 'royalblue', borderRadius: '10px'}}>
+
+      </div> 
+      : 
+      <div />
+      // <ul className="px-1 m-0 list-none">
+      //   {todaysEvents.map((ev) => (
+      //     <li key={ev.id} className="text-xs truncate">
+      //       • {ev.name} ({ev.timeBegin})
+      //     </li>
+      //   ))}
+      // </ul>
     );
   };
 
@@ -65,7 +71,7 @@ export default function Home({ userId, token }) {
       ) : (
         <Card className="shadow-md rounded-2xl p-2">
           {view === "calendar" && (
-            <Calendar fullscreen={true} dateCellRender={dateCellRender} />
+            <Calendar fullscreen={true} showWeek cellRender={dateCellRender}/>
           )}
 
           {view === "table" && (
