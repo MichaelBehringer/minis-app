@@ -39,3 +39,11 @@ export async function doDeleteRequestAuth(path, param, auth) {
 export async function doPutRequestAuth(path, param, auth) {
 	return axios.put(url+path, param, {headers: {Authorization: 'Bearer ' + auth}})
 }
+
+export async function doPatchRequestAuth(path, param, auth) {
+    return axios.patch(url + path, param, {
+        headers: {
+            Authorization: 'Bearer ' + auth
+        }
+    });
+}

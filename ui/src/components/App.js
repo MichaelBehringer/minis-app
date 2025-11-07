@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Layout, Menu, Dropdown, Space, Tooltip } from 'antd';
+import { Layout, Menu, Dropdown, Space } from 'antd';
 import { HomeOutlined, DatabaseOutlined, AppstoreOutlined, UserOutlined } from '@ant-design/icons';
 import { useMediaQuery } from 'react-responsive';
 import { doGetRequestAuth } from '../helper/RequestHelper';
@@ -8,6 +8,7 @@ import { App as AntdApp } from 'antd';
 
 import './App.css';
 import Home from './Home';
+import UserEditModal from './UserEditModal';
 
 const { Header, Content } = Layout;
 
@@ -19,6 +20,8 @@ function App(props) {
   const [userId, setUserId] = useState();
   const [roleId, setRoleId] = useState();
   const [initials, setInitials] = useState();
+  const [userModalOpen, setUserModalOpen] = useState(false);
+
 
   const navigate = useNavigate();
   const isCompactMasterData = useMediaQuery({ maxWidth: 430 });
@@ -62,8 +65,8 @@ function App(props) {
 
   const userMenu = {
     items: [
-      { key: 'settings', label: 'Einstellungen' },
-      { key: 'logout', label: 'Logout', onClick: props.logout }
+      { key: 'settings', label: 'Einstellungen', onClick: () => setUserModalOpen(true) },
+      { key: 'logout', label: 'Logout', onClick: props.removeToken }
     ]
   };
 
@@ -86,10 +89,7 @@ function App(props) {
           <Dropdown menu={userMenu} placement="bottomRight">
             <Space style={{ color: '#fff', cursor: 'pointer' }}>
               <UserOutlined />
-              
-                <Tooltip title={initials}>
-                  <span>{initials}</span>
-                </Tooltip>
+              <span>{initials}</span>
             </Space>
           </Dropdown>
 
@@ -110,6 +110,13 @@ function App(props) {
       ) : (
         <div>Daten werden geladen</div>
       )}
+      <UserEditModal
+  userId={userId}
+  token={props.token}
+  open={userModalOpen}
+  onClose={() => setUserModalOpen(false)}
+  onSaved={() => console.log("User gespeichert")}
+/>
     </div>
   );
 }

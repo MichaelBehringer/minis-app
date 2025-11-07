@@ -34,10 +34,10 @@ func DoLogin(login Login, c *gin.Context) AccessToken {
 	return AccessToken{AccessToken: s}
 }
 
-func CheckToken(c *gin.Context) PersonHead {
+func CheckToken(c *gin.Context) UserHead {
 	_, claims := ExtractToken(c)
 	username, _ := claims["user"].(string)
-	var person PersonHead
+	var person UserHead
 	ExecuteSQLRow("SELECT CONCAT(FIRSTNAME, ' ', LASTNAME), id, ROLE_ID FROM user WHERE USERNAME=?", username).Scan(&person.Name, &person.Id, &person.RoleId)
 	return person
 }

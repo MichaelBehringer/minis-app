@@ -23,6 +23,7 @@ export default function Home({ userId, token }) {
     async function loadEvents() {
       setLoading(true);
       try {
+        await doGetRequestAuth(`user/${userId}`, token)
         const res = await doGetRequestAuth(`events/${userId}`, token);
         setEvents(res.data || []);
       } finally {

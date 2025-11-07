@@ -25,6 +25,10 @@ func main() {
 
 	router.GET("/events/:userId", AuthUser(), getEventsForUser)
 
+	router.GET("/user/:userId", AuthUser(), getUser)
+	router.PATCH("/user/:userId", AuthUser(), updateUser)
+	router.PATCH("/user/:userId/password", AuthUser(), updateUserPassword)
+
 	router.Run("localhost:8080")
 }
 
@@ -44,4 +48,38 @@ func getEventsForUser(c *gin.Context) {
 	userId := c.Param("userId")
 	events := GetEventsForUser(userId)
 	c.IndentedJSON(http.StatusOK, events)
+}
+
+func getUser(c *gin.Context) {
+	userId := c.Param("userId")
+	events := GetUser(userId)
+	c.IndentedJSON(http.StatusOK, events)
+}
+
+func updateUser(c *gin.Context) {
+	userId := c.Param("userId")
+	var payload User
+	if err := c.BindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+	UpdateUser(userId, payload)
+
+	c.JSON(http.StatusOK, gin.H{"status": "updated"})
+}
+
+func updateUserPassword(c *gin.Context) {
+	userId := c.Param("userId")
+
+	var payload struct {
+		Password string `json:"password"`
+	}
+
+	if err := c.BindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	UpdatePassword(userId, payload.Password)
+	c.JSON(http.StatusOK, gin.H{"status": "password changed"})
 }
