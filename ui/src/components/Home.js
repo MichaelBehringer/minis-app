@@ -37,7 +37,6 @@ export default function Home({ userId, token }) {
     const todaysEvents = getEventsForDate(date)
     if (todaysEvents.length !== 0) {
       setSelectedEvents(todaysEvents)
-      console.log(todaysEvents)
       setIsModalOpen(true)
     }
   };
@@ -58,7 +57,7 @@ export default function Home({ userId, token }) {
 
   // Tabellenspalten
   const columns = [
-    { title: "Name", dataIndex: "name", key: "name" },
+    { title: "Beschreibung", dataIndex: "name", key: "name" },
     { title: "Datum", dataIndex: "dateBegin", key: "dateBegin" },
     { title: "Zeit", dataIndex: "timeBegin", key: "timeBegin" },
     { title: "Ort", dataIndex: "location", key: "location" }

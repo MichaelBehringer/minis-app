@@ -8,3 +8,13 @@ type Event struct {
 	LocationID int    `json:"locationId"`
 	Location   string `json:"location"`
 }
+
+type SingleBanDateUpdate struct {
+	Date string `json:"date"`
+	Add  bool   `json:"add"`
+}
+
+type SingleWeekdayUpdate struct {
+	Weekday string `json:"weekday"`
+	Add     bool   `json:"add"`
+}

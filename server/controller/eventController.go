@@ -21,3 +21,44 @@ func GetEventsForUser(userId string) []Event {
 	}
 	return events
 }
+
+func GetBanDates(userId string) []string {
+	statement := "SELECT ban_date FROM ban WHERE user_id = ?"
+	results := ExecuteSQL(statement, userId)
+
+	var dates []string
+	for results.Next() {
+		var date string
+		results.Scan(&date)
+		dates = append(dates, date)
+	}
+	return dates
+}
+
+func AddBlockDate(userId string, date string) {
+	ExecuteDDL("INSERT INTO ban (user_id, ban_date) VALUES (?, ?)", userId, date)
+}
+
+func RemoveBlockDate(userId string, date string) {
+	ExecuteDDL("DELETE FROM ban WHERE user_id = ? AND ban_date = ?", userId, date)
+}
+
+func GetUserWeekdays(userId string) []string {
+	results := ExecuteSQL("SELECT weekday FROM user_weekday WHERE user_id = ?", userId)
+
+	var list []string
+	for results.Next() {
+		var w string
+		results.Scan(&w)
+		list = append(list, w)
+	}
+	return list
+}
+
+func AddUserWeekday(userId string, weekday string) {
+	ExecuteDDL("INSERT INTO user_weekday (user_id, weekday) VALUES (?, ?)", userId, weekday)
+}
+
+func RemoveUserWeekday(userId string, weekday string) {
+	ExecuteDDL("DELETE FROM user_weekday WHERE user_id = ? AND weekday = ?", userId, weekday)
+}

@@ -1,65 +1,56 @@
 import React, { useEffect, useState } from "react";
-import { Modal, Input, Form, Switch, Button, Spin } from "antd";
+import { Modal, Spin, Tabs } from "antd";
 import { doGetRequestAuth, doPatchRequestAuth } from "../helper/RequestHelper";
-import { App as AntdApp } from 'antd';
+import { App as AntdApp } from "antd";
+
+// Unterkomponenten
+import UserGeneralForm from "./UserGeneralForm";
+import UserPasswordModal from "./UserPasswordModal";
+import UserBanDates from "./UserBanDates";
+import UserPreferredWeekdays from "./UserPreferredWeekdays";
+import UserPreferredPartners from "./UserPreferredPartners";
 
 export default function UserEditModal({ userId, token, open, onClose, onSaved }) {
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
+    const [user, setUser] = useState();
     const [passwordModalOpen, setPasswordModalOpen] = useState(false);
-    const [form] = Form.useForm();
-    const [passwordForm] = Form.useForm();
     const { message } = AntdApp.useApp();
 
-    // Userdaten laden
+    const [form] = UserGeneralForm.useUserForm(); // eigener Hook
+
+    // -----------------------------
+    // USER LADEN
+    // -----------------------------
     useEffect(() => {
         if (!open) return;
 
         async function loadUser() {
             setLoading(true);
             const res = await doGetRequestAuth(`user/${userId}`, token);
-            const user = res.data;
+            setUser(res.data)
 
             form.setFieldsValue({
-                firstname: user.firstname,
-                lastname: user.lastname,
-                username: user.username,
-                roleId: user.roleId,
-                active: user.active === 1,
-                incense: user.incense === 1
+                firstname: res.data.firstname,
+                lastname: res.data.lastname,
+                username: res.data.username,
+                roleId: res.data.roleId,
+                active: res.data.active === 1,
+                incense: res.data.incense === 1
             });
+
             setLoading(false);
         }
 
         loadUser();
-    }, [open, userId, token, form]);
 
-    const handlePasswordSave = async () => {
-        try {
-          const values = await passwordForm.validateFields();
-      
-          const payload = {
-            password: values.password
-          };
-      
-          await doPatchRequestAuth(`user/${userId}/password`, payload, token);
-          message.success('Passwort geändert')
-      
-          passwordForm.resetFields();
-          setPasswordModalOpen(false);
-      
-          if (onSaved) onSaved();
-        } catch (err) {
-          // Fehler wird durch Form angezeigt
-        }
-      };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
 
-    // Speichern
-    const handleSave = async () => {
+    // -----------------------------
+    // SPEICHERN
+    // -----------------------------
+    async function handleSave() {
         const values = form.getFieldsValue();
-        if (values.firstname === "" || values.lastname === "") {
-            return
-        }
 
         const payload = {
             firstname: values.firstname,
@@ -70,108 +61,63 @@ export default function UserEditModal({ userId, token, open, onClose, onSaved })
             incense: values.incense ? 1 : 0
         };
 
-        setSaving(true);
-        try {
-            await doPatchRequestAuth(`user/${userId}`, payload, token);
-            message.success('Änderungen gespeichert')
-
-            if (onSaved) onSaved();
-            onClose();
-        } finally {
-            setSaving(false);
-        }
-    };
+        await doPatchRequestAuth(`user/${userId}`, payload, token);
+        message.success("Änderungen gespeichert");
+        if (onSaved) onSaved();
+    }
 
     return (
-        <div>
-        <Modal
-            open={open}
-            title="Benutzer bearbeiten"
-            onCancel={onClose}
-            footer={[
-                <Button key="cancel" onClick={onClose}>
-                    Abbrechen
-                </Button>,
-                <Button key="save" type="primary" loading={saving} onClick={handleSave}>
-                    Speichern
-                </Button>
-            ]}
-            closable={true}
-        >
-            {loading ?
-                <Spin size="large" />
-                : null}
-            <Form layout="vertical" form={form}>
-                <Form.Item label="Vorname" name="firstname" rules={[{ required: true }]}>
-                    <Input />
-                </Form.Item>
+        <>
+            <Modal
+                open={open}
+                title={`Benutzereinstellungen (${user?.username})`}
+                onCancel={onClose}
+                footer={null}
+            >
+                {loading ? (
+                    <Spin size="large" />
+                ) : (
+                    <Tabs
+                        items={[
+                            {
+                                key: "general",
+                                label: "Allgemein",
+                                children: (
+                                    <UserGeneralForm
+                                        form={form}
+                                        handleSave={handleSave}
+                                        onOpenPassword={() => setPasswordModalOpen(true)}
+                                    />
+                                )
+                            },
+                            {
+                                key: "blockdates",
+                                label: "Sperrtage",
+                                children: <UserBanDates userId={userId} token={token} />
+                            },
+                            {
+                                key: "weekdays",
+                                label: "Wochentage",
+                                children: <UserPreferredWeekdays userId={userId} token={token} />
+                            },
+                            {
+                                key: "partners",
+                                label: "Gemeinsame Einteilung",
+                                children: <UserPreferredPartners userId={userId} token={token} />
+                            }
+                        ]}
+                    />
+                )}
+            </Modal>
 
-                <Form.Item label="Nachname" name="lastname" rules={[{ required: true }]}>
-                    <Input />
-                </Form.Item>
-
-                <Form.Item label="Benutzername" name="username">
-                    <Input disabled />
-                </Form.Item>
-
-                <Form.Item label="Rollen-ID" name="roleId">
-                    <Input disabled />
-                </Form.Item>
-
-                <Form.Item label="Weihrauch" name="incense" valuePropName="checked">
-                    <Switch />
-                </Form.Item>
-
-                <Form.Item label="Aktiv" name="active" valuePropName="checked">
-                    <Switch />
-                </Form.Item>
-                <Button
-                    style={{ marginTop: 12 }}
-                    type="default"
-                    onClick={() => setPasswordModalOpen(true)}
-                >
-                    Passwort ändern
-                </Button>
-            </Form>
-        </Modal>
-        <Modal
-  open={passwordModalOpen}
-  title="Passwort ändern"
-  onCancel={() => {
-    passwordForm.resetFields()
-    setPasswordModalOpen(false)
-}}
-  onOk={handlePasswordSave}
->
-  <Form layout="vertical" form={passwordForm}>
-    <Form.Item
-      label="Neues Passwort"
-      name="password"
-      rules={[{ required: true, message: "Bitte Passwort eingeben" }]}
-    >
-      <Input.Password />
-    </Form.Item>
-
-    <Form.Item
-      label="Passwort wiederholen"
-      name="passwordRepeat"
-      dependencies={['password']}
-      rules={[
-        { required: true, message: "Bitte Passwort wiederholen" },
-        ({ getFieldValue }) => ({
-          validator(_, value) {
-            if (!value || getFieldValue("password") === value) {
-              return Promise.resolve();
-            }
-            return Promise.reject(new Error("Passwörter stimmen nicht überein"));
-          }
-        })
-      ]}
-    >
-      <Input.Password />
-    </Form.Item>
-  </Form>
-</Modal>
-    </div>
+            {/* Passwort Modal */}
+            <UserPasswordModal
+                open={passwordModalOpen}
+                onClose={() => setPasswordModalOpen(false)}
+                userId={userId}
+                token={token}
+                onSaved={onSaved}
+            />
+        </>
     );
 }

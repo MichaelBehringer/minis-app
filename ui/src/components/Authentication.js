@@ -16,16 +16,12 @@ function Authentication(props) {
 		setLoading(true);
 		const params = { username: values.username, password: values.password };
 		doPostRequest("login", params).then((response) => {
-			console.log('a')
 			setLoading(false);
 			props.setToken(response.data.accessToken, values.remember);
 			navigate("/")
 		}, error => {
-			console.log('b')
-			console.log(error.response.status)
 			setLoading(false);
 			if (error.response.status === 401) {
-				console.log('bs')
 				message.error('Benutzername oder Passwort falsch!');
 			}
 			return error;

@@ -1,0 +1,35 @@
+.weekday-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;     /* zentriert */
+    gap: 8px;
+    width: 140px;            /* optional für schöne Zentrierung */
+    margin: 0 auto;
+}
+
+.weekday-button {
+    border-radius: 12px !important;
+    padding: 8px 12px !important;
+    border: 1px solid #d9d9d9 !important;
+    width: 100%;             /* schön breite Buttons */
+    transition: all 0.2s ease;
+}
+
+.weekday-button:hover {
+    border-color: #1677ff !important;
+    color: #1677ff !important;
+}
+
+.weekday-button.active {
+    background-color: #1677ff !important;
+    color: white !important;
+    border-color: #1677ff !important;
+}
+
+/* Trennlinie zwischen Freitag und Samstag */
+.weekday-divider {
+    width: 80%;
+    height: 1px;
+    background-color: #e0e0e0;
+    margin: 4px 0 4px 0;
+}

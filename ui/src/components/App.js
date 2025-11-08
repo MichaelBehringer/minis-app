@@ -73,50 +73,49 @@ function App(props) {
   return (
     <div>
       {(userId && roleId) ? (
-      <Layout>
-        <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Layout>
+          <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
 
-          <Menu
-            theme="dark"
-            mode="horizontal"
-            defaultSelectedKeys={['1']}
-            items={menuItems.map(item => ({
-              ...item
-            }))}
-            style={{ flex: 1, minWidth: 0 }}
-          />
+            <Menu
+              theme="dark"
+              mode="horizontal"
+              defaultSelectedKeys={['1']}
+              items={menuItems.map(item => ({
+                ...item
+              }))}
+              style={{ flex: 1, minWidth: 0 }}
+            />
 
-          <Dropdown menu={userMenu} placement="bottomRight">
-            <Space style={{ color: '#fff', cursor: 'pointer' }}>
-              <UserOutlined />
-              <span>{initials}</span>
-            </Space>
-          </Dropdown>
+            <Dropdown menu={userMenu} placement="bottomRight">
+              <Space style={{ color: '#fff', cursor: 'pointer' }}>
+                <UserOutlined />
+                <span>{initials}</span>
+              </Space>
+            </Dropdown>
 
-        </Header>
+          </Header>
 
-        <Content style={{ padding: '20px' }}>
-          <Routes>
-            <Route path="/" element={<Home userId={userId} token={props.token}/>} />
-            {(roleId === 2 || roleId === 3) && (
-              <>
-                <Route path="/stammdaten" element={<Stammdaten />} />
-                <Route path="/einteilung" element={<Einteilung />} />
-              </>
-            )}
-          </Routes>
-        </Content>
-      </Layout>
+          <Content style={{ padding: '20px' }}>
+            <Routes>
+              <Route path="/" element={<Home userId={userId} token={props.token} />} />
+              {(roleId === 2 || roleId === 3) && (
+                <>
+                  <Route path="/stammdaten" element={<Stammdaten />} />
+                  <Route path="/einteilung" element={<Einteilung />} />
+                </>
+              )}
+            </Routes>
+          </Content>
+        </Layout>
       ) : (
         <div>Daten werden geladen</div>
       )}
       <UserEditModal
-  userId={userId}
-  token={props.token}
-  open={userModalOpen}
-  onClose={() => setUserModalOpen(false)}
-  onSaved={() => console.log("User gespeichert")}
-/>
+        userId={userId}
+        token={props.token}
+        open={userModalOpen}
+        onClose={() => setUserModalOpen(false)}
+      />
     </div>
   );
 }
