@@ -23,10 +23,14 @@ func DoLogin(login Login, c *gin.Context) AccessToken {
 		c.AbortWithStatus(http.StatusUnauthorized)
 	}
 
-	key = []byte("my_secret_key_change_todo")
+	user := GetUserForUsername(login.Username)
+
+	key = []byte("axJGB96eQbhCOCSlEHe5QJszFo2qHBLP")
 	t = jwt.NewWithClaims(jwt.SigningMethodHS256,
 		jwt.MapClaims{
-			"user":         login.Username,
+			"user":         user.Username,
+			"roleId":       user.RoleId,
+			"userId":       user.Id,
 			"creationTime": time.Now().UnixNano(),
 		})
 	s, _ = t.SignedString(key)
@@ -55,7 +59,7 @@ func ExtractToken(c *gin.Context) (bool, jwt.MapClaims) {
 func parseToken(tokenStr string) (bool, jwt.MapClaims) {
 	claims := jwt.MapClaims{}
 	tkn, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
-		return []byte("my_secret_key_change_todo"), nil
+		return []byte("axJGB96eQbhCOCSlEHe5QJszFo2qHBLP"), nil
 	})
 	return (err == nil && tkn.Valid), claims
 }

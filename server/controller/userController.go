@@ -34,6 +34,12 @@ func GetUser(userId string) User {
 	return user
 }
 
+func GetUserForUsername(username string) User {
+	var user User
+	ExecuteSQLRow("SELECT id, firstname, lastname, username, role_id, active, incense FROM user WHERE upper(username) = (?)", username).Scan(&user.Id, &user.Firstname, &user.Lastname, &user.Username, &user.RoleId, &user.Active, &user.Incense)
+	return user
+}
+
 func UpdateUser(userId string, user User) bool {
 	ExecuteDDL("UPDATE user SET firstname=?, lastname=?, active=?, incense=? WHERE id=?", user.Firstname, user.Lastname, user.Active, user.Incense, userId)
 	return true

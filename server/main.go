@@ -21,21 +21,24 @@ func main() {
 
 	router.Use(cors.New(config))
 	router.POST("/login", login)
-	router.GET("/checkToken", AuthUser(), checkToken)
 
-	router.GET("/events/:userId", AuthUser(), getEventsForUser)
+	auth := router.Group("/")
+	auth.Use(AuthUser())
+	auth.GET("/checkToken", checkToken)
 
-	router.GET("/userHead", AuthUser(), getAllUserHead)
-	router.GET("/user", AuthUser(), getAllUser)
-	router.GET("/user/:userId", AuthUser(), getUser)
-	router.PATCH("/user/:userId", AuthUser(), updateUser)
-	router.PATCH("/user/:userId/password", AuthUser(), updateUserPassword)
-	router.GET("/user/:userId/ban", AuthUser(), getUserBanDates)
-	router.PATCH("/user/:userId/ban", AuthUser(), updateUserBanDates)
-	router.GET("/user/:userId/weekday", AuthUser(), getUserWeekdays)
-	router.PATCH("/user/:userId/weekday", AuthUser(), updateUserWeekday)
-	router.PATCH("/user/:userId/preferred", AuthUser(), updateUserPreferred)
-	router.GET("/user/:userId/preferred", AuthUser(), getUserPreferred)
+	auth.GET("/events/:userId", getEventsForUser)
+
+	auth.GET("/userHead", getAllUserHead)
+	auth.GET("/user", getAllUser)
+	auth.GET("/user/:userId", getUser)
+	auth.PATCH("/user/:userId", AllowSelfOrMinRole(2), updateUser)
+	auth.PATCH("/user/:userId/password", AllowSelfOrMinRole(2), updateUserPassword)
+	auth.GET("/user/:userId/ban", getUserBanDates)
+	auth.PATCH("/user/:userId/ban", AllowSelfOrMinRole(2), updateUserBanDates)
+	auth.GET("/user/:userId/weekday", getUserWeekdays)
+	auth.PATCH("/user/:userId/weekday", AllowSelfOrMinRole(2), updateUserWeekday)
+	auth.PATCH("/user/:userId/preferred", AllowSelfOrMinRole(2), updateUserPreferred)
+	auth.GET("/user/:userId/preferred", getUserPreferred)
 
 	router.Run("localhost:8080")
 }

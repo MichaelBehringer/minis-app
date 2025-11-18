@@ -4,8 +4,8 @@ import {useState} from 'react';
 function useToken() {
 
   function getToken() {
-    const userTokenLocal = localStorage.getItem('token');
-    const userTokenSession = sessionStorage.getItem('token');
+    const userTokenLocal = localStorage.getItem('jwtToken');
+    const userTokenSession = sessionStorage.getItem('jwtToken');
     return userTokenLocal ? userTokenLocal : userTokenSession ? userTokenSession : null;
   }
 
@@ -13,16 +13,16 @@ function useToken() {
 
   function saveToken(userToken, remember) {
     if (remember) {
-      localStorage.setItem('token', userToken);
+      localStorage.setItem('jwtToken', userToken);
     } else {
-      sessionStorage.setItem('token', userToken);
+      sessionStorage.setItem('jwtToken', userToken);
     }
     setToken(userToken);
   };
 
   function removeToken() {
-    localStorage.removeItem("token");
-    sessionStorage.removeItem("token");
+    localStorage.removeItem("jwtToken");
+    sessionStorage.removeItem("jwtToken");
     setToken(null);
   }
   return {
