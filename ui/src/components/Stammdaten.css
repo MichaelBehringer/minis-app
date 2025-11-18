@@ -1,0 +1,6 @@
+.inactive-row {
+  background-color: #f5f5f5 !important;
+}
+.inactive-row td {
+  color: #999;
+}

@@ -7,7 +7,7 @@ import (
 )
 
 func GetAllUserHead() []UserSmall {
-	results := ExecuteSQL("SELECT id, firstname, lastname FROM user WHERE active = 1 and role_id in (1, 2)")
+	results := ExecuteSQL("SELECT id, firstname, lastname FROM user WHERE active = 1 and role_id in (1, 2) ORDER BY lastname, firstname")
 	users := []UserSmall{}
 	for results.Next() {
 		var user UserSmall
@@ -18,7 +18,7 @@ func GetAllUserHead() []UserSmall {
 }
 
 func GetAllUser() []User {
-	results := ExecuteSQL("SELECT id, firstname, lastname, username, role_id, active, incense FROM user")
+	results := ExecuteSQL("SELECT id, firstname, lastname, username, role_id, active, incense FROM user ORDER BY active DESC, lastname, firstname")
 	users := []User{}
 	for results.Next() {
 		var user User

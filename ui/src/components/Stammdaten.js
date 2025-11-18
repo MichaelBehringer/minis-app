@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Table, Button } from "antd";
 import { doGetRequestAuth } from "../helper/RequestHelper";
 
+import "./Stammdaten.css"
+
 export default function Stammdaten({ token, onEditUser }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -58,6 +60,7 @@ export default function Stammdaten({ token, onEditUser }) {
       dataSource={users}
       loading={loading}
       pagination={false}
+      rowClassName={(record) => (record.active === 0 ? "inactive-row" : "")}
     />
   );
 }
