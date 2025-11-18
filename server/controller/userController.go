@@ -6,12 +6,23 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-func GetAllUser() []UserSmall {
+func GetAllUserHead() []UserSmall {
 	results := ExecuteSQL("SELECT id, firstname, lastname FROM user WHERE active = 1 and role_id in (1, 2)")
 	users := []UserSmall{}
 	for results.Next() {
 		var user UserSmall
 		results.Scan(&user.Id, &user.Firstname, &user.Lastname)
+		users = append(users, user)
+	}
+	return users
+}
+
+func GetAllUser() []User {
+	results := ExecuteSQL("SELECT id, firstname, lastname, username, role_id, active, incense FROM user")
+	users := []User{}
+	for results.Next() {
+		var user User
+		results.Scan(&user.Id, &user.Firstname, &user.Lastname, &user.Username, &user.RoleId, &user.Active, &user.Incense)
 		users = append(users, user)
 	}
 	return users

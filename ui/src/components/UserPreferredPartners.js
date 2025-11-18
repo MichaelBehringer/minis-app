@@ -8,7 +8,7 @@ export default function UserPreferredPartners({ userId, token }) {
 
     useEffect(() => {
         async function load() {
-            const all = await doGetRequestAuth("user", token);
+            const all = await doGetRequestAuth("userHead", token);
             const pref = await doGetRequestAuth(`user/${userId}/preferred`, token);
 
             setAllUsers(all.data);

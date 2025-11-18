@@ -9,15 +9,16 @@ import { App as AntdApp } from 'antd';
 import './App.css';
 import Home from './Home';
 import UserEditModal from './UserEditModal';
+import Stammdaten from './Stammdaten';
 
 const { Header, Content } = Layout;
 
-function Stammdaten() { return <h2>Stammdaten</h2>; }
 function Einteilung() { return <h2>Einteilung</h2>; }
 
 function App(props) {
   const { message } = AntdApp.useApp();
   const [userId, setUserId] = useState();
+  const [editUserId, setEditUserId] = useState(null);
   const [roleId, setRoleId] = useState();
   const [initials, setInitials] = useState();
   const [userModalOpen, setUserModalOpen] = useState(false);
@@ -100,7 +101,19 @@ function App(props) {
               <Route path="/" element={<Home userId={userId} token={props.token} />} />
               {(roleId === 2 || roleId === 3) && (
                 <>
-                  <Route path="/stammdaten" element={<Stammdaten />} />
+                  <Route
+                    path="/stammdaten"
+                    element={
+                      <Stammdaten
+                        token={props.token}
+                        onEditUser={(id) => {
+                          setEditUserId(id);
+                          setUserModalOpen(true);
+                        }}
+                      />
+                    }
+                  />
+
                   <Route path="/einteilung" element={<Einteilung />} />
                 </>
               )}
@@ -111,11 +124,15 @@ function App(props) {
         <div>Daten werden geladen</div>
       )}
       <UserEditModal
-        userId={userId}
+        userId={editUserId ?? userId}
         token={props.token}
         open={userModalOpen}
-        onClose={() => setUserModalOpen(false)}
+        onClose={() => {
+          setUserModalOpen(false)
+          setEditUserId(null)
+        }}
       />
+
     </div>
   );
 }

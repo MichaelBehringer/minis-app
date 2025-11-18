@@ -25,6 +25,7 @@ func main() {
 
 	router.GET("/events/:userId", AuthUser(), getEventsForUser)
 
+	router.GET("/userHead", AuthUser(), getAllUserHead)
 	router.GET("/user", AuthUser(), getAllUser)
 	router.GET("/user/:userId", AuthUser(), getUser)
 	router.PATCH("/user/:userId", AuthUser(), updateUser)
@@ -55,6 +56,11 @@ func getEventsForUser(c *gin.Context) {
 	userId := c.Param("userId")
 	events := GetEventsForUser(userId)
 	c.IndentedJSON(http.StatusOK, events)
+}
+
+func getAllUserHead(c *gin.Context) {
+	users := GetAllUserHead()
+	c.IndentedJSON(http.StatusOK, users)
 }
 
 func getAllUser(c *gin.Context) {
