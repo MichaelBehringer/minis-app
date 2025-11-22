@@ -50,3 +50,23 @@ func AllowSelfOrMinRole(minRole int) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func AllowMinRole(minRole int) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claimsVal, exists := c.Get("claims")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+
+		claims := claimsVal.(jwt.MapClaims)
+		role := int(claims["roleId"].(float64))
+
+		if role < minRole {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
+			return
+		}
+
+		c.Next()
+	}
+}

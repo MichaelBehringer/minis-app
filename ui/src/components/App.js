@@ -10,10 +10,9 @@ import './App.css';
 import Home from './Home';
 import UserEditModal from './UserEditModal';
 import Stammdaten from './Stammdaten';
+import Einteilung from './Einteilung';
 
 const { Header, Content } = Layout;
-
-function Einteilung() { return <h2>Einteilung</h2>; }
 
 function App(props) {
   const { message } = AntdApp.useApp();
@@ -114,7 +113,7 @@ function App(props) {
                     }
                   />
 
-                  <Route path="/einteilung" element={<Einteilung />} />
+                  <Route path="/einteilung" element={<Einteilung token={props.token}/>} />
                 </>
               )}
             </Routes>

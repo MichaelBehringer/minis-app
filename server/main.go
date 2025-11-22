@@ -27,6 +27,12 @@ func main() {
 	auth.GET("/checkToken", checkToken)
 
 	auth.GET("/events/:userId", getEventsForUser)
+	auth.GET("/events", getEventsByDateRange)
+	auth.PATCH("/events/:eventId/assign/add", AllowMinRole(2), addUserToEvent)
+	auth.PATCH("/events/:eventId/assign/remove", AllowMinRole(2), removeUserFromEvent)
+	auth.PUT("/event", AllowMinRole(2), putEvent)
+
+	auth.GET("/location", getLocations)
 
 	auth.GET("/userHead", getAllUserHead)
 	auth.GET("/user", getAllUser)
@@ -59,6 +65,68 @@ func getEventsForUser(c *gin.Context) {
 	userId := c.Param("userId")
 	events := GetEventsForUser(userId)
 	c.IndentedJSON(http.StatusOK, events)
+}
+
+func getEventsByDateRange(c *gin.Context) {
+	from := c.Query("from")
+	to := c.Query("to")
+
+	events := GetEventsByDateRange(from, to)
+	c.IndentedJSON(http.StatusOK, events)
+}
+
+func addUserToEvent(c *gin.Context) {
+	eventId := c.Param("eventId")
+
+	var payload struct {
+		UserId int `json:"userId"`
+	}
+
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	AddUserToEvent(eventId, payload.UserId)
+
+	c.JSON(200, gin.H{"status": "added"})
+}
+
+func removeUserFromEvent(c *gin.Context) {
+	eventId := c.Param("eventId")
+
+	var payload struct {
+		UserId int `json:"userId"`
+	}
+
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	RemoveUserFromEvent(eventId, payload.UserId)
+
+	c.JSON(200, gin.H{"status": "removed"})
+}
+
+func getLocations(c *gin.Context) {
+	locations := GetLocations()
+	c.IndentedJSON(200, locations)
+}
+
+func putEvent(c *gin.Context) {
+	var ev Event
+	if err := c.BindJSON(&ev); err != nil {
+		c.JSON(400, gin.H{"error": "invalid payload"})
+		return
+	}
+
+	id := CreateEvent(ev)
+
+	c.JSON(200, gin.H{
+		"status": "created",
+		"id":     id,
+	})
 }
 
 func getAllUserHead(c *gin.Context) {
