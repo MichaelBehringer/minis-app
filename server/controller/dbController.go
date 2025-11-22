@@ -38,3 +38,7 @@ func ExecuteDDL(statement string, params ...interface{}) sql.Result {
 	result, _ := db.Exec(statement, params...)
 	return result
 }
+
+func GetDB() *sql.DB {
+	return db
+}

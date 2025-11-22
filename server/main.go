@@ -5,6 +5,7 @@ import (
 	. "minisAPI/middleware"
 	. "minisAPI/models"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -25,6 +26,8 @@ func main() {
 	auth := router.Group("/")
 	auth.Use(AuthUser())
 	auth.GET("/checkToken", checkToken)
+
+	auth.GET("/autoAssign", autoAssign)
 
 	auth.GET("/events/:userId", getEventsForUser)
 	auth.GET("/events", getEventsByDateRange)
@@ -54,6 +57,14 @@ func login(c *gin.Context) {
 	c.BindJSON(&login)
 	retJWT := DoLogin(login, c)
 	c.IndentedJSON(http.StatusOK, retJWT)
+}
+
+func autoAssign(c *gin.Context) {
+
+	eventId := c.Query("eventId")
+	i, _ := strconv.Atoi(eventId)
+	AssignUsersToEvent(i, GetDB())
+	c.IndentedJSON(http.StatusOK, "ok")
 }
 
 func checkToken(c *gin.Context) {
