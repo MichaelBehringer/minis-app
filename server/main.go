@@ -29,6 +29,8 @@ func main() {
 
 	auth.GET("/autoAssign", autoAssign)
 
+	router.GET("/pdf/events", GetEventsPDF)
+
 	auth.GET("/events/:userId", getEventsForUser)
 	auth.GET("/events", getEventsByDateRange)
 	auth.PATCH("/events/:eventId/assign/add", AllowMinRole(2), addUserToEvent)
@@ -255,4 +257,20 @@ func getUserPreferred(c *gin.Context) {
 	data := GetPreferredUsers(userId)
 
 	c.JSON(200, data)
+}
+
+func GetEventsPDF(c *gin.Context) {
+	fromStr := c.Query("from")
+	toStr := c.Query("to")
+
+	// PDF erzeugen
+	pdfBytes, err := CreateEventPlanPDF(GetDB(), fromStr, toStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "PDF konnte nicht erzeugt werden", "details": err.Error()})
+		return
+	}
+
+	// Download Header
+	c.Header("Content-Disposition", "attachment; filename=Miniplan.pdf")
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
