@@ -125,6 +125,7 @@ function App(props) {
       )}
       <UserEditModal
         userId={editUserId ?? userId}
+        roleId={roleId}
         token={props.token}
         open={userModalOpen}
         onClose={() => {

@@ -1,6 +1,6 @@
 import { Form, Input, Switch, Button } from "antd";
 
-export default function UserGeneralForm({ form, handleSave, onOpenPassword }) {
+export default function UserGeneralForm({ form, handleSave, onOpenPassword, roleId }) {
     return (
         <Form layout="vertical" form={form}>
             <Form.Item label="Vorname" name="firstname" rules={[{ required: true }]}>
@@ -24,7 +24,7 @@ export default function UserGeneralForm({ form, handleSave, onOpenPassword }) {
             </Form.Item>
 
             <Form.Item label="Aktiv" name="active" valuePropName="checked">
-                <Switch />
+                <Switch disabled={roleId == 1}/>
             </Form.Item>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
                 <Button type="default" onClick={onOpenPassword}>

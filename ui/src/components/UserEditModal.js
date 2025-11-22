@@ -10,7 +10,7 @@ import UserBanDates from "./UserBanDates";
 import UserPreferredWeekdays from "./UserPreferredWeekdays";
 import UserPreferredPartners from "./UserPreferredPartners";
 
-export default function UserEditModal({ userId, token, open, onClose, onSaved }) {
+export default function UserEditModal({ userId, token, open, onClose, onSaved, roleId }) {
     const [loading, setLoading] = useState(true);
     const [user, setUser] = useState();
     const [passwordModalOpen, setPasswordModalOpen] = useState(false);
@@ -87,6 +87,7 @@ export default function UserEditModal({ userId, token, open, onClose, onSaved })
                                         form={form}
                                         handleSave={handleSave}
                                         onOpenPassword={() => setPasswordModalOpen(true)}
+                                        roleId={roleId}
                                     />
                                 )
                             },
