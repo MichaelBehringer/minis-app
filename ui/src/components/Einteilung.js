@@ -12,6 +12,9 @@ import {
   Input,
   InputNumber,
   message,
+  Tag,
+  Tooltip,
+  Spin,
   Checkbox,
 } from "antd";
 import { DownloadOutlined, PlusOutlined } from "@ant-design/icons";
@@ -32,7 +35,183 @@ export default function Einteilung({ token }) {
   const [locationList, setLocationList] = useState([]);
   const [newEventModalOpen, setNewEventModalOpen] = useState(false);
 
+  const [assignmentOptionsByEventId, setAssignmentOptionsByEventId] = useState({});
+  const [assignmentOptionsLoadingByEventId, setAssignmentOptionsLoadingByEventId] = useState({});
+
   const [form] = Form.useForm();
+
+  const AVAILABILITY_META = {
+    ok: {
+      groupLabel: "Alles ok",
+      tagText: "OK",
+      tagColor: "green",
+    },
+    weekday_inactive: {
+      groupLabel: "Wochentag nicht aktiv",
+      tagText: "Wochentag",
+      tagColor: "orange",
+    },
+    banned: {
+      groupLabel: "Gesperrt",
+      tagText: "Sperrung",
+      tagColor: "red",
+    },
+    inactive: {
+      groupLabel: "Inaktive Benutzer",
+      tagText: "Inaktiv",
+      tagColor: "default",
+    },
+  };
+
+  const AVAILABILITY_ORDER = [
+    "ok",
+    "weekday_inactive",
+    "banned",
+    "inactive",
+  ];
+
+  const loadAssignmentOptionsForEvent = async (eventId) => {
+    if (assignmentOptionsByEventId[eventId] || assignmentOptionsLoadingByEventId[eventId]) {
+      return;
+    }
+
+    setAssignmentOptionsLoadingByEventId((prev) => ({
+      ...prev,
+      [eventId]: true,
+    }));
+
+    try {
+      const res = await doGetRequestAuth(
+        `event/${eventId}/assignment-options`,
+        token
+      );
+
+      setAssignmentOptionsByEventId((prev) => ({
+        ...prev,
+        [eventId]: res.data.options || [],
+      }));
+    } catch (e) {
+      message.error("Verfügbarkeit konnte nicht geladen werden");
+    } finally {
+      setAssignmentOptionsLoadingByEventId((prev) => ({
+        ...prev,
+        [eventId]: false,
+      }));
+    }
+  };
+
+  const getUserName = (u) => `${u.firstname} ${u.lastname}`;
+
+  const renderUserOptionLabel = (u) => {
+    const meta = AVAILABILITY_META[u.status] || AVAILABILITY_META.ok;
+    const name = getUserName(u);
+
+    return (
+      <Tooltip title={u.reason || meta.groupLabel}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span>{name}</span>
+          <Tag color={meta.tagColor} style={{ marginInlineEnd: 0 }}>
+            {meta.tagText}
+          </Tag>
+        </div>
+      </Tooltip>
+    );
+  };
+
+  const getAssignmentSelectOptions = (eventId) => {
+    const loadedOptions = assignmentOptionsByEventId[eventId];
+
+    // Vor dem Öffnen: normale User-Liste, damit bereits ausgewählte IDs Namen anzeigen können.
+    if (!loadedOptions) {
+      return users.map((u) => ({
+        value: u.id,
+        label: getUserName(u),
+        searchLabel: getUserName(u),
+      }));
+    }
+
+    return AVAILABILITY_ORDER.map((status) => {
+      const meta = AVAILABILITY_META[status];
+
+      return {
+        label: <span>{meta.groupLabel}</span>,
+        title: meta.groupLabel,
+        options: loadedOptions
+          .filter((u) => u.status === status)
+          .map((u) => {
+            const name = getUserName(u);
+
+            return {
+              value: u.id,
+              label: renderUserOptionLabel(u),
+              searchLabel: `${name} ${meta.groupLabel} ${u.reason || ""}`,
+
+              // Falls du gesperrte Personen gar nicht auswählbar machen willst:
+              // disabled: u.status === "banned",
+            };
+          }),
+      };
+    }).filter((group) => group.options.length > 0);
+  };
+
+  const filterUserOption = (input, option) => {
+    const text =
+      option?.searchLabel ||
+      (typeof option?.label === "string" ? option.label : "");
+
+    return text.toLowerCase().includes(input.toLowerCase());
+  };
+
+  const setAssignedUsersForEvent = (eventId, assignedUserIds) => {
+    setEvents((prev) =>
+      prev.map((event) =>
+        event.id === eventId
+          ? {
+            ...event,
+            assignedUserIds,
+          }
+          : event
+      )
+    );
+  };
+
+  const handleAssignmentChange = async (ev, newIds) => {
+    const oldIds = ev.assignedUserIds || [];
+
+    const addedIds = newIds.filter((id) => !oldIds.includes(id));
+    const removedIds = oldIds.filter((id) => !newIds.includes(id));
+
+    setAssignedUsersForEvent(ev.id, newIds);
+
+    try {
+      await Promise.all([
+        ...addedIds.map((userId) =>
+          doPatchRequestAuth(
+            `events/${ev.id}/assign/add`,
+            { userId },
+            token
+          )
+        ),
+        ...removedIds.map((userId) =>
+          doPatchRequestAuth(
+            `events/${ev.id}/assign/remove`,
+            { userId },
+            token
+          )
+        ),
+      ]);
+    } catch (e) {
+      setAssignedUsersForEvent(ev.id, oldIds);
+      message.error("Zuweisung konnte nicht gespeichert werden");
+    }
+  };
 
   useEffect(() => {
     doGetRequestAuth("user", token).then((res) => setUsers(res.data));
@@ -197,39 +376,18 @@ export default function Einteilung({ token }) {
                 placeholder="Benutzer zuordnen"
                 value={ev.assignedUserIds || []}
                 showSearch
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+                loading={!!assignmentOptionsLoadingByEventId[ev.id]}
+                notFoundContent={
+                  assignmentOptionsLoadingByEventId[ev.id] ? <Spin size="small" /> : null
                 }
-                onChange={(newIds) => {
-                  const oldIds = ev.assignedUserIds || [];
-
-                  const added = newIds.find((id) => !oldIds.includes(id));
-                  const removed = oldIds.find((id) => !newIds.includes(id));
-
-                  if (added !== undefined) {
-                    doPatchRequestAuth(
-                      `events/${ev.id}/assign/add`,
-                      { userId: added },
-                      token
-                    );
-                    ev.assignedUserIds = [...oldIds, added];
-                    setEvents([...events]);
-                  }
-
-                  if (removed !== undefined) {
-                    doPatchRequestAuth(
-                      `events/${ev.id}/assign/remove`,
-                      { userId: removed },
-                      token
-                    );
-                    ev.assignedUserIds = oldIds.filter((id) => id !== removed);
-                    setEvents([...events]);
+                onOpenChange={(open) => {
+                  if (open) {
+                    loadAssignmentOptionsForEvent(ev.id);
                   }
                 }}
-                options={users.map((u) => ({
-                  value: u.id,
-                  label: `${u.firstname} ${u.lastname}`,
-                }))}
+                filterOption={filterUserOption}
+                onChange={(newIds) => handleAssignmentChange(ev, newIds)}
+                options={getAssignmentSelectOptions(ev.id)}
               />
 
               <Button type="primary" onClick={() => handleAutoAssign(ev.id)}>

@@ -26,3 +26,18 @@ type PreferredUpdate struct {
 	OtherUserId int  `json:"otherUserId"`
 	Add         bool `json:"add"`
 }
+
+type EventAssignmentUserOption struct {
+	Id        int    `json:"id"`
+	Firstname string `json:"firstname"`
+	Lastname  string `json:"lastname"`
+	Status    string `json:"status"`
+	Reason    string `json:"reason"`
+}
+
+type EventAssignmentOptionsResponse struct {
+	EventId    int                         `json:"eventId"`
+	Date       string                      `json:"date"`
+	WeekdayKey []string                    `json:"weekdayKey"`
+	Options    []EventAssignmentUserOption `json:"options"`
+}

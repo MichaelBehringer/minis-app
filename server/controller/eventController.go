@@ -2,6 +2,7 @@ package controller
 
 import (
 	. "minisAPI/models"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -143,4 +144,137 @@ func AddUserWeekday(userId string, weekday string) {
 
 func RemoveUserWeekday(userId string, weekday string) {
 	ExecuteDDL("DELETE FROM user_weekday WHERE user_id = ? AND weekday = ?", userId, weekday)
+}
+
+func GetAssignmentOptionsForEvent(eventId string) (EventAssignmentOptionsResponse, error) {
+	var id int
+	var dateBegin string
+	var ignoreWeekday int
+
+	err := ExecuteSQLRow(`
+		SELECT 
+			id,
+			DATE_FORMAT(date_begin, '%Y-%m-%d'),
+			IFNULL(ignoreWeekday, 0)
+		FROM event
+		WHERE id = ?
+	`, eventId).Scan(&id, &dateBegin, &ignoreWeekday)
+
+	if err != nil {
+		return EventAssignmentOptionsResponse{}, err
+	}
+
+	weekdayKeys, err := getWeekdayKeys(dateBegin)
+	if err != nil {
+		return EventAssignmentOptionsResponse{}, err
+	}
+
+	rows := ExecuteSQL(`
+	SELECT
+		u.id,
+		u.firstname,
+		u.lastname,
+		CASE
+			WHEN IFNULL(u.active, 0) = 0 THEN 'inactive'
+
+			WHEN EXISTS (
+				SELECT 1 
+				FROM ban b
+				WHERE b.user_id = u.id
+				AND b.ban_date = ?
+			) THEN 'banned'
+
+			WHEN ? = 0 AND NOT EXISTS (
+				SELECT 1
+				FROM user_weekday uw
+				WHERE uw.user_id = u.id
+				AND LOWER(TRIM(uw.weekday)) IN (?, ?, ?, ?)
+			) THEN 'weekday_inactive'
+
+			ELSE 'ok'
+		END AS availability_status
+	FROM user u
+	ORDER BY
+		CASE availability_status
+			WHEN 'ok' THEN 1
+			WHEN 'weekday_inactive' THEN 2
+			WHEN 'banned' THEN 3
+			WHEN 'inactive' THEN 4
+			ELSE 5
+		END,
+		u.lastname,
+		u.firstname
+`,
+		dateBegin,
+		ignoreWeekday,
+		weekdayKeys[0],
+		weekdayKeys[1],
+		weekdayKeys[2],
+		weekdayKeys[3],
+	)
+
+	defer rows.Close()
+
+	options := []EventAssignmentUserOption{}
+
+	for rows.Next() {
+		var user EventAssignmentUserOption
+
+		rows.Scan(
+			&user.Id,
+			&user.Firstname,
+			&user.Lastname,
+			&user.Status,
+		)
+
+		user.Reason = getAvailabilityReason(user.Status)
+
+		options = append(options, user)
+	}
+
+	return EventAssignmentOptionsResponse{
+		EventId:    id,
+		Date:       dateBegin,
+		WeekdayKey: weekdayKeys,
+		Options:    options,
+	}, nil
+}
+
+func getAvailabilityReason(status string) string {
+	switch status {
+	case "inactive":
+		return "Diese Person ist inaktiv"
+	case "banned":
+		return "Diese Person hat an diesem Tag eine Sperrung"
+	case "weekday_inactive":
+		return "Diese Person hat diesen Wochentag eigentlich nicht aktiv"
+	default:
+		return "Diese Person kann an diesem Tag"
+	}
+}
+
+func getWeekdayKeys(date string) ([]string, error) {
+	d, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return nil, err
+	}
+
+	switch d.Weekday() {
+	case time.Monday:
+		return []string{"mon", "mo", "1", "1"}, nil
+	case time.Tuesday:
+		return []string{"tue", "di", "2", "2"}, nil
+	case time.Wednesday:
+		return []string{"wed", "mi", "3", "3"}, nil
+	case time.Thursday:
+		return []string{"thu", "do", "4", "4"}, nil
+	case time.Friday:
+		return []string{"fri", "fr", "5", "5"}, nil
+	case time.Saturday:
+		return []string{"sat", "sa", "6", "6"}, nil
+	case time.Sunday:
+		return []string{"sun", "so", "7", "0"}, nil
+	default:
+		return []string{"", "", "", ""}, nil
+	}
 }

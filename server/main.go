@@ -50,6 +50,7 @@ func main() {
 	auth.PATCH("/user/:userId/weekday", AllowSelfOrMinRole(2), updateUserWeekday)
 	auth.PATCH("/user/:userId/preferred", AllowSelfOrMinRole(2), updateUserPreferred)
 	auth.GET("/user/:userId/preferred", getUserPreferred)
+	auth.GET("/event/:eventId/assignment-options", AllowMinRole(2), getEventAssignmentOptions)
 
 	router.Run("localhost:8080")
 }
@@ -273,4 +274,18 @@ func GetEventsPDF(c *gin.Context) {
 	// Download Header
 	c.Header("Content-Disposition", "attachment; filename=Miniplan.pdf")
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+func getEventAssignmentOptions(c *gin.Context) {
+	eventId := c.Param("eventId")
+
+	options, err := GetAssignmentOptionsForEvent(eventId)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Event nicht gefunden oder Verfügbarkeit konnte nicht geladen werden",
+		})
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, options)
 }
