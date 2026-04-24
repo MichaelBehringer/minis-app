@@ -33,10 +33,11 @@ Note: The algorithm selects deterministically the highest-score user each iterat
 */
 
 type AssignEvent struct {
-	ID          int
-	Name        string
-	DateBegin   time.Time // date only (time zeroed)
-	MinimalUser int
+	ID            int
+	Name          string
+	DateBegin     time.Time // date only (time zeroed)
+	MinimalUser   int
+	IgnoreWeekday int
 }
 
 type AssignUser struct {
@@ -140,7 +141,7 @@ func AssignUsersToEvent(eventID int, db *sql.DB) error {
 			continue
 		}
 		// weekday check: user must have eventWeekday in user_weekday table
-		if !u.Weekdays[eventWeekday] {
+		if !u.Weekdays[eventWeekday] && event.IgnoreWeekday == 0 {
 			u.Excluded = true
 			continue
 		}
@@ -256,20 +257,21 @@ func dateOnly(t time.Time) time.Time {
 // loadEvent loads event row by id. Expects tx (transaction) context.
 func loadEvent(ctx context.Context, tx *sql.Tx, eventID int) (*AssignEvent, error) {
 	stmt, err := tx.PrepareContext(ctx,
-		"SELECT id, name, date_begin, minimalUser FROM event WHERE id = ? FOR UPDATE")
+		"SELECT id, name, date_begin, minimalUser, ignoreWeekday FROM event WHERE id = ? FOR UPDATE")
 	if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
 
 	var (
-		id      int
-		name    sql.NullString
-		dateStr sql.NullString // <-- FIX: scan DATE into string
-		minimal sql.NullInt64
+		id            int
+		name          sql.NullString
+		dateStr       sql.NullString // <-- FIX: scan DATE into string
+		minimal       sql.NullInt64
+		ignoreWeekday sql.NullInt64
 	)
 
-	err = stmt.QueryRowContext(ctx, eventID).Scan(&id, &name, &dateStr, &minimal)
+	err = stmt.QueryRowContext(ctx, eventID).Scan(&id, &name, &dateStr, &minimal, &ignoreWeekday)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("event %d not found", eventID)
@@ -288,10 +290,11 @@ func loadEvent(ctx context.Context, tx *sql.Tx, eventID int) (*AssignEvent, erro
 	}
 
 	ev := &AssignEvent{
-		ID:          id,
-		Name:        name.String,
-		DateBegin:   parsedDate,
-		MinimalUser: int(minimal.Int64),
+		ID:            id,
+		Name:          name.String,
+		DateBegin:     parsedDate,
+		MinimalUser:   int(minimal.Int64),
+		IgnoreWeekday: int(ignoreWeekday.Int64),
 	}
 
 	return ev, nil
@@ -346,7 +349,7 @@ func populateUserWeekdays(ctx context.Context, tx *sql.Tx, users []*AssignUser) 
 	stmt, err := tx.PrepareContext(ctx, "SELECT user_id, weekday FROM user_weekday WHERE user_id IN (?)")
 	// The above won't work with a single placeholder for IN list; to be robust, query without IN by scanning all rows where user_id in set.
 	// Simpler: fetch all user_weekday rows and filter locally (cheap w.r.t. simplicity).
-	stmt.Close() // we will do a different query
+	stmt.Close() // we will do a different query todo delete?
 	rows, err := tx.QueryContext(ctx, "SELECT user_id, weekday FROM user_weekday")
 	if err != nil {
 		return err

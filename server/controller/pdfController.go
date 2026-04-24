@@ -208,9 +208,9 @@ func drawEventBlock(pdf *fpdf.Fpdf, ev FullEvent) {
 		drawUserGrid(pdf, ev.Users)
 	} else {
 		pdf.SetXY(50, pdf.GetY())
-		pdf.SetTextColor(150, 150, 150)
-		pdf.SetFont("myArial", "I", 10)
-		pdf.Cell(0, 6, "- Keine Einteilung -")
+		// pdf.SetTextColor(150, 150, 150)
+		// pdf.SetFont("myArial", "I", 10)
+		// pdf.Cell(0, 6, "- Keine Einteilung -")
 		pdf.Ln(10)
 	}
 

@@ -48,6 +48,20 @@ export default function Einteilung({ token }) {
     });
   };
 
+  const downloadPDF = () => {
+    if (!dateRange || !dateRange[0] || !dateRange[1]) {
+      message.warning("Bitte zuerst einen Zeitraum auswählen");
+      return;
+    }
+
+    const from = dayjs(dateRange[0]).format("YYYY-MM-DD");
+    const to = dayjs(dateRange[1]).format("YYYY-MM-DD");
+
+    const url = `/pdf/events?from=${from}&to=${to}`;
+
+    window.open(url, "_blank");
+  };
+
   const handleAutoAssign = (eventId) => {
     doGetRequestAuth(`autoAssign?eventId=${eventId}`, token).then(() => {
       loadEvents(dateRange);
@@ -90,7 +104,7 @@ export default function Einteilung({ token }) {
           Neue Messe
         </Button>
 
-        <Button icon={<DownloadOutlined />}>PDF Export</Button>
+        <Button onClick={downloadPDF} icon={<DownloadOutlined />}>PDF Export</Button>
       </Space>
 
       {/* NEUE MESSE MODAL */}
