@@ -64,8 +64,8 @@ func RemoveUserFromEvent(eventId string, userId int) {
 
 func CreateEvent(ev Event) int {
 	statement := `
-        INSERT INTO event (name, date_begin, time_begin, location_id, minimalUser)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO event (name, date_begin, time_begin, location_id, minimalUser, ignoreWeekday)
+        VALUES (?, ?, ?, ?, ?, ?)
     `
 	result := ExecuteDDL(
 		statement,
@@ -74,6 +74,7 @@ func CreateEvent(ev Event) int {
 		ev.TimeBegin,
 		ev.LocationID,
 		ev.MinimalUser,
+		ev.IgnoreWeekday,
 	)
 
 	id, _ := result.LastInsertId()

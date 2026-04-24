@@ -12,6 +12,7 @@ import {
   Input,
   InputNumber,
   message,
+  Checkbox,
 } from "antd";
 import { DownloadOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -76,6 +77,7 @@ export default function Einteilung({ token }) {
         timeBegin: values.time.format("HH:mm:ss"),
         locationId: values.locationId,
         minimalUser: values.minimalUser,
+        ignoreWeekday: values.ignoreWeekday,
       };
 
       doPutRequestAuth("event", payload, token).then(() => {
@@ -160,6 +162,14 @@ export default function Einteilung({ token }) {
             rules={[{ required: true, message: "Bitte Anzahl eingeben" }]}
           >
             <InputNumber min={0} style={{ width: "100%" }} />
+          </Form.Item>
+
+          <Form.Item
+            label="WochentagIgnorieren"
+            name="ignoreWeekday"
+            valuePropName="checked"
+          >
+            <Checkbox>Wochentag Ignorieren</Checkbox>
           </Form.Item>
         </Form>
       </Modal>
