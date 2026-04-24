@@ -28,11 +28,13 @@ type PreferredUpdate struct {
 }
 
 type EventAssignmentUserOption struct {
-	Id        int    `json:"id"`
-	Firstname string `json:"firstname"`
-	Lastname  string `json:"lastname"`
-	Status    string `json:"status"`
-	Reason    string `json:"reason"`
+	Id                       int    `json:"id"`
+	Firstname                string `json:"firstname"`
+	Lastname                 string `json:"lastname"`
+	Status                   string `json:"status"`
+	Reason                   string `json:"reason"`
+	LastAssignmentDaysBefore *int   `json:"lastAssignmentDaysBefore,omitempty"`
+	NextAssignmentDaysAfter  *int   `json:"nextAssignmentDaysAfter,omitempty"`
 }
 
 type EventAssignmentOptionsResponse struct {

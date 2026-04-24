@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"database/sql"
 	. "minisAPI/models"
 	"time"
 
@@ -149,20 +150,24 @@ func RemoveUserWeekday(userId string, weekday string) {
 func GetAssignmentOptionsForEvent(eventId string) (EventAssignmentOptionsResponse, error) {
 	var id int
 	var dateBegin string
+	var timeBegin string
 	var ignoreWeekday int
 
 	err := ExecuteSQLRow(`
 		SELECT 
 			id,
 			DATE_FORMAT(date_begin, '%Y-%m-%d'),
+			TIME_FORMAT(time_begin, '%H:%i:%s'),
 			IFNULL(ignoreWeekday, 0)
 		FROM event
 		WHERE id = ?
-	`, eventId).Scan(&id, &dateBegin, &ignoreWeekday)
+	`, eventId).Scan(&id, &dateBegin, &timeBegin, &ignoreWeekday)
 
 	if err != nil {
 		return EventAssignmentOptionsResponse{}, err
 	}
+
+	currentDateTime := dateBegin + " " + timeBegin
 
 	weekdayKeys, err := getWeekdayKeys(dateBegin)
 	if err != nil {
@@ -170,47 +175,90 @@ func GetAssignmentOptionsForEvent(eventId string) (EventAssignmentOptionsRespons
 	}
 
 	rows := ExecuteSQL(`
-	SELECT
-		u.id,
-		u.firstname,
-		u.lastname,
-		CASE
-			WHEN IFNULL(u.active, 0) = 0 THEN 'inactive'
+		SELECT
+			u.id,
+			u.firstname,
+			u.lastname,
+			CASE
+				WHEN IFNULL(u.active, 0) = 0 THEN 'inactive'
 
-			WHEN EXISTS (
-				SELECT 1 
-				FROM ban b
-				WHERE b.user_id = u.id
-				AND b.ban_date = ?
-			) THEN 'banned'
+				WHEN EXISTS (
+					SELECT 1 
+					FROM ban b
+					WHERE b.user_id = u.id
+					AND b.ban_date = ?
+				) THEN 'banned'
 
-			WHEN ? = 0 AND NOT EXISTS (
-				SELECT 1
-				FROM user_weekday uw
-				WHERE uw.user_id = u.id
-				AND LOWER(TRIM(uw.weekday)) IN (?, ?, ?, ?)
-			) THEN 'weekday_inactive'
+				WHEN ? = 0 AND NOT EXISTS (
+					SELECT 1
+					FROM user_weekday uw
+					WHERE uw.user_id = u.id
+					AND LOWER(TRIM(uw.weekday)) IN (?, ?, ?, ?)
+				) THEN 'weekday_inactive'
 
-			ELSE 'ok'
-		END AS availability_status
-	FROM user u
-	ORDER BY
-		CASE availability_status
-			WHEN 'ok' THEN 1
-			WHEN 'weekday_inactive' THEN 2
-			WHEN 'banned' THEN 3
-			WHEN 'inactive' THEN 4
-			ELSE 5
-		END,
-		u.lastname,
-		u.firstname
-`,
+				ELSE 'ok'
+			END AS availability_status,
+
+			(
+				SELECT DATEDIFF(?, MAX(e_last.date_begin))
+				FROM plan p_last
+				INNER JOIN event e_last ON e_last.id = p_last.event_id
+				WHERE p_last.user_id = u.id
+				AND e_last.id <> ?
+				AND (
+					TIMESTAMP(e_last.date_begin, e_last.time_begin) < ?
+					OR (
+						TIMESTAMP(e_last.date_begin, e_last.time_begin) = ?
+						AND e_last.id < ?
+					)
+				)
+			) AS last_assignment_days_before,
+
+			(
+				SELECT DATEDIFF(MIN(e_next.date_begin), ?)
+				FROM plan p_next
+				INNER JOIN event e_next ON e_next.id = p_next.event_id
+				WHERE p_next.user_id = u.id
+				AND e_next.id <> ?
+				AND (
+					TIMESTAMP(e_next.date_begin, e_next.time_begin) > ?
+					OR (
+						TIMESTAMP(e_next.date_begin, e_next.time_begin) = ?
+						AND e_next.id > ?
+					)
+				)
+			) AS next_assignment_days_after
+
+		FROM user u
+		ORDER BY
+			CASE availability_status
+				WHEN 'ok' THEN 1
+				WHEN 'weekday_inactive' THEN 2
+				WHEN 'banned' THEN 3
+				WHEN 'inactive' THEN 4
+				ELSE 5
+			END,
+			u.lastname,
+			u.firstname
+	`,
 		dateBegin,
 		ignoreWeekday,
 		weekdayKeys[0],
 		weekdayKeys[1],
 		weekdayKeys[2],
 		weekdayKeys[3],
+
+		dateBegin,
+		id,
+		currentDateTime,
+		currentDateTime,
+		id,
+
+		dateBegin,
+		id,
+		currentDateTime,
+		currentDateTime,
+		id,
 	)
 
 	defer rows.Close()
@@ -219,15 +267,29 @@ func GetAssignmentOptionsForEvent(eventId string) (EventAssignmentOptionsRespons
 
 	for rows.Next() {
 		var user EventAssignmentUserOption
+		var lastDays sql.NullInt64
+		var nextDays sql.NullInt64
 
 		rows.Scan(
 			&user.Id,
 			&user.Firstname,
 			&user.Lastname,
 			&user.Status,
+			&lastDays,
+			&nextDays,
 		)
 
 		user.Reason = getAvailabilityReason(user.Status)
+
+		if lastDays.Valid {
+			v := int(lastDays.Int64)
+			user.LastAssignmentDaysBefore = &v
+		}
+
+		if nextDays.Valid {
+			v := int(nextDays.Int64)
+			user.NextAssignmentDaysAfter = &v
+		}
 
 		options = append(options, user)
 	}

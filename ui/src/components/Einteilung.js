@@ -13,7 +13,6 @@ import {
   InputNumber,
   message,
   Tag,
-  Tooltip,
   Spin,
   Checkbox,
 } from "antd";
@@ -70,96 +69,166 @@ export default function Einteilung({ token }) {
     "inactive",
   ];
 
-  const loadAssignmentOptionsForEvent = async (eventId) => {
-    if (assignmentOptionsByEventId[eventId] || assignmentOptionsLoadingByEventId[eventId]) {
-      return;
-    }
+  const compareAssignmentOptions = (a, b) => {
+  const aLast =
+    a.lastAssignmentDaysBefore !== undefined && a.lastAssignmentDaysBefore !== null
+      ? a.lastAssignmentDaysBefore
+      : -1;
 
+  const bLast =
+    b.lastAssignmentDaysBefore !== undefined && b.lastAssignmentDaysBefore !== null
+      ? b.lastAssignmentDaysBefore
+      : -1;
+
+  if (aLast !== bLast) {
+    return bLast - aLast;
+  }
+
+  const aLastName = (a.lastname || "").toLowerCase();
+  const bLastName = (b.lastname || "").toLowerCase();
+
+  if (aLastName !== bLastName) {
+    return aLastName.localeCompare(bLastName);
+  }
+
+  return (a.firstname || "").toLowerCase().localeCompare(
+    (b.firstname || "").toLowerCase()
+  );
+};
+
+  const loadAssignmentOptionsForEvent = async (eventId) => {
+  // Nur parallele Doppel-Requests verhindern,
+  // aber vorhandene Daten NICHT als Cache verwenden.
+  if (assignmentOptionsLoadingByEventId[eventId]) {
+    return;
+  }
+
+  setAssignmentOptionsLoadingByEventId((prev) => ({
+    ...prev,
+    [eventId]: true,
+  }));
+
+  try {
+    const res = await doGetRequestAuth(
+      `event/${eventId}/assignment-options`,
+      token
+    );
+
+    setAssignmentOptionsByEventId((prev) => ({
+      ...prev,
+      [eventId]: res.data.options || [],
+    }));
+  } catch (e) {
+    message.error("Verfügbarkeit konnte nicht geladen werden");
+  } finally {
     setAssignmentOptionsLoadingByEventId((prev) => ({
       ...prev,
-      [eventId]: true,
+      [eventId]: false,
     }));
-
-    try {
-      const res = await doGetRequestAuth(
-        `event/${eventId}/assignment-options`,
-        token
-      );
-
-      setAssignmentOptionsByEventId((prev) => ({
-        ...prev,
-        [eventId]: res.data.options || [],
-      }));
-    } catch (e) {
-      message.error("Verfügbarkeit konnte nicht geladen werden");
-    } finally {
-      setAssignmentOptionsLoadingByEventId((prev) => ({
-        ...prev,
-        [eventId]: false,
-      }));
-    }
-  };
+  }
+};
 
   const getUserName = (u) => `${u.firstname} ${u.lastname}`;
 
-  const renderUserOptionLabel = (u) => {
-    const meta = AVAILABILITY_META[u.status] || AVAILABILITY_META.ok;
-    const name = getUserName(u);
+  const renderAssignmentDistanceCompact = (u) => {
+  const last =
+    u.lastAssignmentDaysBefore !== undefined && u.lastAssignmentDaysBefore !== null
+      ? u.lastAssignmentDaysBefore
+      : "–";
 
-    return (
-      <Tooltip title={u.reason || meta.groupLabel}>
-        <div
+  const next =
+    u.nextAssignmentDaysAfter !== undefined && u.nextAssignmentDaysAfter !== null
+      ? u.nextAssignmentDaysAfter
+      : "–";
+
+  return `${last}/${next}`;
+};
+
+const renderUserOptionLabel = (u) => {
+  const meta = AVAILABILITY_META[u.status] || AVAILABILITY_META.ok;
+  const name = getUserName(u);
+  const distanceText = renderAssignmentDistanceCompact(u);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 8,
+      }}
+    >
+      <span
+        style={{
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {name}
+      </span>
+
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          flexShrink: 0,
+        }}
+      >
+        <Tag color={meta.tagColor} style={{ marginInlineEnd: 0 }}>
+          {meta.tagText}
+        </Tag>
+
+        <span
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 8,
+            fontSize: 12,
+            color: "#888",
+            minWidth: 38,
+            textAlign: "right",
+            fontVariantNumeric: "tabular-nums",
           }}
         >
-          <span>{name}</span>
-          <Tag color={meta.tagColor} style={{ marginInlineEnd: 0 }}>
-            {meta.tagText}
-          </Tag>
-        </div>
-      </Tooltip>
-    );
-  };
+          {distanceText}
+        </span>
+      </span>
+    </div>
+  );
+};
 
   const getAssignmentSelectOptions = (eventId) => {
-    const loadedOptions = assignmentOptionsByEventId[eventId];
+  const loadedOptions = assignmentOptionsByEventId[eventId];
 
-    // Vor dem Öffnen: normale User-Liste, damit bereits ausgewählte IDs Namen anzeigen können.
-    if (!loadedOptions) {
-      return users.map((u) => ({
-        value: u.id,
-        label: getUserName(u),
-        searchLabel: getUserName(u),
-      }));
-    }
+  if (!loadedOptions) {
+    return users.map((u) => ({
+      value: u.id,
+      label: getUserName(u),
+      searchLabel: getUserName(u),
+    }));
+  }
 
-    return AVAILABILITY_ORDER.map((status) => {
-      const meta = AVAILABILITY_META[status];
+  return AVAILABILITY_ORDER.map((status) => {
+    const meta = AVAILABILITY_META[status];
 
-      return {
-        label: <span>{meta.groupLabel}</span>,
-        title: meta.groupLabel,
-        options: loadedOptions
-          .filter((u) => u.status === status)
-          .map((u) => {
-            const name = getUserName(u);
+    return {
+      label: <span>{meta.groupLabel}</span>,
+      title: meta.groupLabel,
+      options: loadedOptions
+        .filter((u) => u.status === status)
+        .sort(compareAssignmentOptions)
+        .map((u) => {
+          const name = getUserName(u);
 
-            return {
-              value: u.id,
-              label: renderUserOptionLabel(u),
-              searchLabel: `${name} ${meta.groupLabel} ${u.reason || ""}`,
-
-              // Falls du gesperrte Personen gar nicht auswählbar machen willst:
-              // disabled: u.status === "banned",
-            };
-          }),
-      };
-    }).filter((group) => group.options.length > 0);
-  };
+          return {
+            value: u.id,
+            label: renderUserOptionLabel(u),
+            searchLabel: `${name} ${meta.groupLabel} ${u.reason || ""} ${renderAssignmentDistanceCompact(u)}`,
+            disabled: u.status === "inactive",
+          };
+        }),
+    };
+  }).filter((group) => group.options.length > 0);
+};
 
   const filterUserOption = (input, option) => {
     const text =
