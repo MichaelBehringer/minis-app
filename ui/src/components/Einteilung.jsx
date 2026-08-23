@@ -335,12 +335,6 @@ const renderUserOptionLabel = (u) => {
     }
   };
 
-  const handleAutoAssign = (eventId) => {
-    doGetRequestAuth(`autoAssign?eventId=${eventId}`, token).then(() => {
-      loadEvents(dateRange);
-    });
-  };
-
   const submitNewEvent = () => {
     form.validateFields().then((values) => {
       const payload = {
@@ -482,10 +476,6 @@ const renderUserOptionLabel = (u) => {
                 onChange={(newIds) => handleAssignmentChange(ev, newIds)}
                 options={getAssignmentSelectOptions(ev.id)}
               />
-
-              <Button type="primary" onClick={() => handleAutoAssign(ev.id)}>
-                Automatisch zuweisen
-              </Button>
             </Card>
           </Col>
         ))}
