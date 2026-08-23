@@ -1,7 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import {
-  Badge,
-  Calendar,
   Card,
   Empty,
   Segmented,
@@ -19,8 +17,11 @@ import {
 import dayjs from 'dayjs'
 import { doGetRequestAuth } from '../helper/RequestHelper'
 import { myToastError } from '../helper/ToastHelper'
-import useIsMobile from '../hooks/useIsMobile'
 import Sheet from './Sheet'
+
+// antds Calendar zieht die ganze Datumsmaschinerie mit. Die Liste ist die
+// Standardansicht, der Kalender kommt deshalb erst beim Umschalten.
+const HomeKalender = lazy(() => import('./HomeKalender'))
 
 // Uhrzeit aus dem Backend: "18:30:00".
 //
@@ -111,7 +112,6 @@ export default function Home({ userId, token }) {
   const [zeigeVergangene, setZeigeVergangene] = useState(false)
   const [tagesEvents, setTagesEvents] = useState([])
   const [sheetOffen, setSheetOffen] = useState(false)
-  const isMobile = useIsMobile()
 
   useEffect(() => {
     async function laden() {
@@ -153,18 +153,6 @@ export default function Home({ userId, token }) {
   const eventsAmTag = (wert) => {
     const datum = wert.format('YYYY-MM-DD')
     return events.filter((e) => e.dateBegin === datum)
-  }
-
-  // Im Kalender die Anzahl anzeigen statt eines farbigen Blocks. Der Block
-  // sagte nur "hier ist irgendwas" - man musste tippen, um es zu erfahren.
-  const zelleRendern = (wert) => {
-    const anzahl = eventsAmTag(wert).length
-    if (anzahl === 0) return null
-    return (
-      <div style={{ textAlign: 'center', lineHeight: 1 }}>
-        <Badge count={anzahl} size="small" />
-      </div>
-    )
   }
 
   if (loading) {
@@ -226,14 +214,16 @@ export default function Home({ userId, token }) {
       )}
 
       {ansicht === 'kalender' && (
-        <Card size="small" styles={{ body: { padding: isMobile ? 4 : 12 } }}>
-          <Calendar
-            // Am Handy die kompakte Form: ein Monatsraster in voller Breite
-            // ist auf 390px gequetscht.
-            fullscreen={!isMobile}
-            cellRender={zelleRendern}
-            onSelect={(datum, info) => {
-              if (info?.source !== 'date') return
+        <Suspense
+          fallback={
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}>
+              <Spin />
+            </div>
+          }
+        >
+          <HomeKalender
+            eventsAmTag={eventsAmTag}
+            onTagWaehlen={(datum) => {
               const treffer = eventsAmTag(datum)
               if (treffer.length > 0) {
                 setTagesEvents(treffer)
@@ -241,7 +231,7 @@ export default function Home({ userId, token }) {
               }
             }}
           />
-        </Card>
+        </Suspense>
       )}
 
       <Sheet

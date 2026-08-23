@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/app-icon.svg" sizes="any" type="image/svg+xml" />
     <!-- viewport-fit=cover ist die Voraussetzung dafuer, dass
          env(safe-area-inset-*) im Standalone-Modus ueberhaupt Werte liefert. -->
     <meta
@@ -19,7 +20,24 @@
       content="#141414"
       media="(prefers-color-scheme: dark)"
     />
-    <meta name="description" content="Ministrantenplan der Pfarrei Wemding" />
+    <meta
+      name="description"
+      content="Ministrantenplan der Pfarrei Wemding - Einsätze und Einteilung"
+    />
+
+    <!-- Vom Startbildschirm gestartet ohne Browserleiste. Neuere iOS-Versionen
+         lesen das aus dem Manifest, aeltere brauchen diese Tags. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <!-- Kurz halten: iOS schneidet den Namen unter dem Symbol ab. -->
+    <meta name="apple-mobile-web-app-title" content="Ministranten" />
+
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
+    <!-- Das Manifest fuegt vite-plugin-pwa beim Build selbst ein. -->
     <title>Ministrantenplan</title>
   </head>
   <body>

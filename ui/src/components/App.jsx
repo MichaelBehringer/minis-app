@@ -22,12 +22,15 @@ import useIsMobile from '../hooks/useIsMobile'
 import { istPlaner } from '../navigation'
 import AppNav, { BOTTOM_NAV_HEIGHT, SIDER_WIDTH } from './AppNav'
 import Home from './Home'
-import UserEditModal from './UserEditModal'
 
 // Die beiden Planungsseiten kommen erst beim Aufruf. Ein Ministrant - die
 // Mehrheit der Nutzer - laedt sie damit nie.
 const Stammdaten = lazy(() => import('./Stammdaten'))
 const Einteilung = lazy(() => import('./Einteilung'))
+
+// Ebenso der Bearbeiten-Bereich: vier Reiter mit Formular, Kalender und
+// Auswahllisten, die erst beim Oeffnen gebraucht werden.
+const UserEditModal = lazy(() => import('./UserEditModal'))
 
 const { Content, Header } = Layout
 
@@ -231,6 +234,8 @@ function App(props) {
         </Content>
       </Layout>
 
+      {userSheetOpen && (
+      <Suspense fallback={null}>
       <UserEditModal
         userId={editUserId ?? userId}
         // Ob der Bearbeiter Planer ist, entscheidet ueber die schreibbaren
@@ -252,6 +257,8 @@ function App(props) {
           }
         }}
       />
+      </Suspense>
+      )}
     </Layout>
   )
 }
