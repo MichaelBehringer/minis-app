@@ -1,10 +1,8 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Calendar, Table, Segmented, Spin, Card, Modal, Button } from "antd";
 import dayjs from "dayjs";
-import "dayjs/locale/de";
 import { doGetRequestAuth } from "../helper/RequestHelper";
 
-dayjs.locale("de");
 
 export default function Home({ userId, token }) {
   const [events, setEvents] = useState([]);

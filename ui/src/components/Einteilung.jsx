@@ -11,7 +11,6 @@ import {
   Form,
   Input,
   InputNumber,
-  message,
   Tag,
   Spin,
   Checkbox,
@@ -20,9 +19,15 @@ import { DownloadOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
   doGetRequestAuth,
+  doGetRequestBlobAuth,
   doPatchRequestAuth,
   doPutRequestAuth,
 } from "../helper/RequestHelper";
+import {
+  myToastError,
+  myToastInfo,
+  myToastSuccess,
+} from "../helper/ToastHelper";
 
 const { RangePicker } = DatePicker;
 
@@ -118,8 +123,8 @@ export default function Einteilung({ token }) {
       ...prev,
       [eventId]: res.data.options || [],
     }));
-  } catch (e) {
-    message.error("Verfügbarkeit konnte nicht geladen werden");
+  } catch {
+    myToastError("Verfügbarkeit konnte nicht geladen werden");
   } finally {
     setAssignmentOptionsLoadingByEventId((prev) => ({
       ...prev,
@@ -276,9 +281,9 @@ const renderUserOptionLabel = (u) => {
           )
         ),
       ]);
-    } catch (e) {
+    } catch {
       setAssignedUsersForEvent(ev.id, oldIds);
-      message.error("Zuweisung konnte nicht gespeichert werden");
+      myToastError("Zuweisung konnte nicht gespeichert werden");
     }
   };
 
@@ -297,18 +302,37 @@ const renderUserOptionLabel = (u) => {
     });
   };
 
-  const downloadPDF = () => {
+  // Der Plan kommt jetzt als Blob mit Token statt ueber window.open.
+  //
+  // Zwei Gruende: window.open kann keinen Authorization-Header setzen, und
+  // /pdf/events ist nicht mehr oeffentlich. Ausserdem zeigte der bisherige
+  // relative Pfad gar nicht auf das Backend - nginx kennt nur / und /server/,
+  // der Knopf lieferte in Produktion die index.html statt einer PDF.
+  const downloadPDF = async () => {
     if (!dateRange || !dateRange[0] || !dateRange[1]) {
-      message.warning("Bitte zuerst einen Zeitraum auswählen");
+      myToastInfo("Bitte zuerst einen Zeitraum auswählen");
       return;
     }
 
     const from = dayjs(dateRange[0]).format("YYYY-MM-DD");
     const to = dayjs(dateRange[1]).format("YYYY-MM-DD");
 
-    const url = `/pdf/events?from=${from}&to=${to}`;
+    try {
+      const res = await doGetRequestBlobAuth(
+        `pdf/events?from=${from}&to=${to}`,
+        token
+      );
 
-    window.open(url, "_blank");
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Miniplan_${from}_bis_${to}.pdf`;
+      a.click();
+      // Ohne das Freigeben bleibt der Blob bis zum Neuladen im Speicher.
+      URL.revokeObjectURL(url);
+    } catch {
+      myToastError("Plan konnte nicht erzeugt werden");
+    }
   };
 
   const handleAutoAssign = (eventId) => {
@@ -332,7 +356,7 @@ const renderUserOptionLabel = (u) => {
         setNewEventModalOpen(false);
         form.resetFields();
         loadEvents(dateRange);
-        message.success("Messe angelegt");
+        myToastSuccess("Messe angelegt");
       });
     }).catch(() => {
     });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, Link, useNavigate } from 'react-router-dom';
+import { Routes, Route, Link, useNavigate } from 'react-router';
 import { Layout, Menu, Dropdown, Space } from 'antd';
 import { HomeOutlined, DatabaseOutlined, AppstoreOutlined, UserOutlined } from '@ant-design/icons';
 import { useMediaQuery } from 'react-responsive';

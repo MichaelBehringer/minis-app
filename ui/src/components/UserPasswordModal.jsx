@@ -1,7 +1,5 @@
-import React from "react";
-import { Modal, Form, Input } from "antd";
+import { Modal, Form, Input, App as AntdApp } from "antd";
 import { doPatchRequestAuth } from "../helper/RequestHelper";
-import { App as AntdApp } from "antd";
 
 export default function UserPasswordModal({ open, onClose, userId, token, onSaved }) {
     const [form] = Form.useForm();
@@ -20,7 +18,15 @@ export default function UserPasswordModal({ open, onClose, userId, token, onSave
             onClose();
 
             if (onSaved) onSaved();
-        } catch (_) { }
+        } catch (fehler) {
+            // Ein leerer catch verschluckte hier auch fehlgeschlagene
+            // Anfragen - eine nicht gespeicherte Aenderung sah damit aus wie
+            // ein Erfolg ohne Meldung. Fehlende Formularangaben zeigt antd
+            // selbst am Feld an, dafuer braucht es keine Meldung.
+            if (!fehler?.errorFields) {
+                message.error("Passwort konnte nicht geändert werden");
+            }
+        }
     }
 
     return (

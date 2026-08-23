@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, Spin, Tabs } from "antd";
 import { doGetRequestAuth, doPatchRequestAuth } from "../helper/RequestHelper";
 import { App as AntdApp } from "antd";

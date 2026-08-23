@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
-import { Calendar, Spin, message } from "antd";
+import { useEffect, useState } from "react";
+import { Calendar, Spin } from "antd";
+import { myToastSuccess } from "../helper/ToastHelper";
 import { doGetRequestAuth, doPatchRequestAuth } from "../helper/RequestHelper";
 
 export default function UserBanDates({ userId, token }) {
@@ -39,7 +40,7 @@ export default function UserBanDates({ userId, token }) {
         setBanDates(updated);
 
         await doPatchRequestAuth(`user/${userId}/ban`, payload, token);
-        message.success("Änderung gespeichert");
+        myToastSuccess("Änderung gespeichert");
     };
 
 

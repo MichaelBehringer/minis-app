@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Button, Spin, message } from "antd";
+import { Button, Spin } from "antd";
+import { myToastSuccess } from "../helper/ToastHelper";
 import { doGetRequestAuth, doPatchRequestAuth } from "../helper/RequestHelper";
 
 import "./UserPreferredWeekdays.css"
@@ -44,7 +45,7 @@ export default function UserPreferredWeekdays({ userId, token }) {
         setSelected(updated);
 
         await doPatchRequestAuth(`user/${userId}/weekday`, payload, token);
-        message.success("Änderung gespeichert");
+        myToastSuccess("Änderung gespeichert");
     };
 
 
