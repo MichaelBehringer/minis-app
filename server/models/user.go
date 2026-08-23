@@ -16,6 +16,11 @@ type User struct {
 	Incense   int    `json:"incense"`
 }
 
+type Role struct {
+	Id   int    `json:"id"`
+	Name string `json:"name"`
+}
+
 type UserSmall struct {
 	Id        int    `json:"id"`
 	Firstname string `json:"firstname"`
@@ -35,6 +40,10 @@ type EventAssignmentUserOption struct {
 	Reason                   string `json:"reason"`
 	LastAssignmentDaysBefore *int   `json:"lastAssignmentDaysBefore,omitempty"`
 	NextAssignmentDaysAfter  *int   `json:"nextAssignmentDaysAfter,omitempty"`
+	// Ids der Wunschpartner, beide Richtungen. Dient als Hinweis beim
+	// Einteilen von Hand - seit die automatische Zuteilung entfernt ist, ist
+	// das die einzige Stelle, an der die gepflegten Wunschpaare noch wirken.
+	PreferredWith []int `json:"preferredWith"`
 }
 
 type EventAssignmentOptionsResponse struct {

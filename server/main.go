@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log"
 	. "minisAPI/controller"
 	. "minisAPI/middleware"
 	. "minisAPI/models"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -19,7 +24,9 @@ func main() {
 	// server/.env - siehe .env.example.
 	_ = godotenv.Load()
 
-	InitDB()
+	if err := InitDB(); err != nil {
+		log.Fatalf("%v", err)
+	}
 	defer CloseDB()
 
 	router := gin.Default()
@@ -48,8 +55,11 @@ func main() {
 	auth.PATCH("/events/:eventId/assign/add", AllowMinRole(2), addUserToEvent)
 	auth.PATCH("/events/:eventId/assign/remove", AllowMinRole(2), removeUserFromEvent)
 	auth.PUT("/event", AllowMinRole(2), putEvent)
+	// Mehrere Messen auf einmal, fuer eine Serie gleichartiger Termine.
+	auth.PUT("/events", AllowMinRole(2), putEvents)
 
 	auth.GET("/location", getLocations)
+	auth.GET("/role", AllowMinRole(2), getRoles)
 
 	// Bleibt fuer alle Angemeldeten lesbar: die Liste dient der Auswahl der
 	// Wunschpartner, die jeder fuer sich selbst pflegen darf. Sie enthaelt nur
@@ -68,13 +78,57 @@ func main() {
 	auth.GET("/user/:userId/preferred", AllowSelfOrMinRole(2), getUserPreferred)
 	auth.GET("/event/:eventId/assignment-options", AllowMinRole(2), getEventAssignmentOptions)
 
-	// Feste Bindung an localhost liess sich im Container nicht erreichen und
-	// musste vor jedem Deployen von Hand geaendert werden.
+	starteServer(router)
+}
+
+// starteServer laesst den Server laufen und beendet ihn geordnet.
+//
+// Vorher stand hier router.Run(). Das kehrt nie zurueck, weshalb das
+// defer CloseDB() in main bei einem SIGTERM - also bei jedem
+// "docker compose down" - nie ausgefuehrt wurde. Und ohne Zeitgrenzen am
+// http.Server kann eine haengende Verbindung beliebig lange eine Ressource
+// halten.
+func starteServer(handler http.Handler) {
 	adresse := Env("MINIS_LISTEN_ADDR", "localhost:8080")
-	log.Printf("Server lauscht auf %s", adresse)
-	if err := router.Run(adresse); err != nil {
-		log.Fatalf("Server konnte nicht starten: %v", err)
+
+	srv := &http.Server{
+		Addr:    adresse,
+		Handler: handler,
+		// Grosszuegig, aber nicht unbegrenzt: die PDF-Erzeugung ueber einen
+		// langen Zeitraum darf nicht in ein Zeitlimit laufen.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
+
+	go func() {
+		log.Printf("Server lauscht auf %s", adresse)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server konnte nicht starten: %v", err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	log.Println("Server wird beendet")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("Beim Beenden: %v", err)
+	}
+}
+
+// serverFehler protokolliert den Grund und antwortet ohne ihn.
+//
+// Der Grund gehoert ins Log und nicht in die Antwort: er nennt Tabellen- und
+// Spaltennamen. Vorher wurden Datenbankfehler gar nicht gemeldet - die
+// Anwendung bekam 200 mit einer leeren Liste und zeigte "keine Daten".
+func serverFehler(c *gin.Context, was string, err error) {
+	log.Printf("%s: %v", was, err)
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Die Anfrage konnte nicht bearbeitet werden"})
 }
 
 func login(c *gin.Context) {
@@ -108,8 +162,11 @@ func checkToken(c *gin.Context) {
 }
 
 func getEventsForUser(c *gin.Context) {
-	userId := c.Param("userId")
-	events := GetEventsForUser(userId)
+	events, err := GetEventsForUser(c.Param("userId"))
+	if err != nil {
+		serverFehler(c, "Einsaetze laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, events)
 }
 
@@ -117,7 +174,11 @@ func getEventsByDateRange(c *gin.Context) {
 	from := c.Query("from")
 	to := c.Query("to")
 
-	events := GetEventsByDateRange(from, to)
+	events, err := GetEventsByDateRange(from, to)
+	if err != nil {
+		serverFehler(c, "Messen im Zeitraum laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, events)
 }
 
@@ -129,13 +190,22 @@ func addUserToEvent(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid JSON"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
 
-	AddUserToEvent(eventId, payload.UserId)
+	err := AddUserToEvent(eventId, payload.UserId)
+	if errors.Is(err, ErrBereitsEingeteilt) {
+		// Fachlich kein Fehler: der gewuenschte Zustand liegt schon vor.
+		c.JSON(http.StatusOK, gin.H{"status": "added"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Einteilen", err)
+		return
+	}
 
-	c.JSON(200, gin.H{"status": "added"})
+	c.JSON(http.StatusOK, gin.H{"status": "added"})
 }
 
 func removeUserFromEvent(c *gin.Context) {
@@ -146,59 +216,129 @@ func removeUserFromEvent(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid JSON"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
 
-	RemoveUserFromEvent(eventId, payload.UserId)
+	if err := RemoveUserFromEvent(eventId, payload.UserId); err != nil {
+		serverFehler(c, "Einteilung entfernen", err)
+		return
+	}
 
-	c.JSON(200, gin.H{"status": "removed"})
+	c.JSON(http.StatusOK, gin.H{"status": "removed"})
 }
 
 func getLocations(c *gin.Context) {
-	locations := GetLocations()
-	c.IndentedJSON(200, locations)
+	locations, err := GetLocations()
+	if err != nil {
+		serverFehler(c, "Orte laden", err)
+		return
+	}
+	c.IndentedJSON(http.StatusOK, locations)
+}
+
+func getRoles(c *gin.Context) {
+	roles, err := GetRoles()
+	if err != nil {
+		serverFehler(c, "Rollen laden", err)
+		return
+	}
+	c.IndentedJSON(http.StatusOK, roles)
 }
 
 func putEvent(c *gin.Context) {
 	var ev Event
-	if err := c.BindJSON(&ev); err != nil {
-		c.JSON(400, gin.H{"error": "invalid payload"})
+	if err := c.ShouldBindJSON(&ev); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
 
-	id := CreateEvent(ev)
+	id, err := CreateEvent(ev)
+	if err != nil {
+		serverFehler(c, "Messe anlegen", err)
+		return
+	}
 
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"status": "created",
 		"id":     id,
 	})
 }
 
+// putEvents legt eine Serie gleichartiger Messen an.
+//
+// Die Termine berechnet die Anwendung und zeigt sie vorher als Vorschau;
+// angelegt wird genau diese Liste. Alles in einer Transaktion, damit keine
+// halbe Serie entsteht.
+func putEvents(c *gin.Context) {
+	var batch EventBatch
+	if err := c.ShouldBindJSON(&batch); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+	if len(batch.Events) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "keine Termine uebergeben"})
+		return
+	}
+	// Obergrenze als Schutz vor einem Tippfehler im Zeitraum - ein
+	// versehentlich auf Jahre gestellter Bereich soll nicht hunderte Messen
+	// anlegen, die dann von Hand wieder weg muessen.
+	if len(batch.Events) > 200 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "zu viele Termine auf einmal (maximal 200)"})
+		return
+	}
+
+	ids, err := CreateEvents(batch.Events)
+	if err != nil {
+		serverFehler(c, "Serie anlegen", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "created",
+		"ids":    ids,
+		"count":  len(ids),
+	})
+}
+
 func getAllUserHead(c *gin.Context) {
-	users := GetAllUserHead()
+	users, err := GetAllUserHead()
+	if err != nil {
+		serverFehler(c, "Ministrantenliste laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, users)
 }
 
 func getAllUser(c *gin.Context) {
-	users := GetAllUser()
+	users, err := GetAllUser()
+	if err != nil {
+		serverFehler(c, "Benutzer laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, users)
 }
 
 func getUser(c *gin.Context) {
-	userId := c.Param("userId")
-	user := GetUser(userId)
+	user, err := GetUser(c.Param("userId"))
+	if err != nil {
+		serverFehler(c, "Benutzer laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, user)
 }
 
 func updateUser(c *gin.Context) {
 	userId := c.Param("userId")
 	var payload User
-	if err := c.BindJSON(&payload); err != nil {
+	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
-	UpdateUser(userId, payload)
+	if err := UpdateUser(userId, payload); err != nil {
+		serverFehler(c, "Benutzer speichern", err)
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "updated"})
 }
@@ -210,18 +350,28 @@ func updateUserPassword(c *gin.Context) {
 		Password string `json:"password"`
 	}
 
-	if err := c.BindJSON(&payload); err != nil {
+	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
+	if payload.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Passwort darf nicht leer sein"})
+		return
+	}
 
-	UpdatePassword(userId, payload.Password)
+	if err := UpdatePassword(userId, payload.Password); err != nil {
+		serverFehler(c, "Passwort speichern", err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "password changed"})
 }
 
 func getUserBanDates(c *gin.Context) {
-	userId := c.Param("userId")
-	bans := GetBanDates(userId)
+	bans, err := GetBanDates(c.Param("userId"))
+	if err != nil {
+		serverFehler(c, "Sperrtage laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, bans)
 }
 
@@ -230,21 +380,29 @@ func updateUserBanDates(c *gin.Context) {
 
 	var update SingleBanDateUpdate
 	if err := c.ShouldBindJSON(&update); err != nil {
-		c.JSON(400, gin.H{"error": "invalid payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
 
+	var err error
 	if update.Add {
-		AddBlockDate(userId, update.Date)
+		err = AddBlockDate(userId, update.Date)
 	} else {
-		RemoveBlockDate(userId, update.Date)
+		err = RemoveBlockDate(userId, update.Date)
 	}
-	c.JSON(200, gin.H{"status": "ok"})
+	if err != nil {
+		serverFehler(c, "Sperrtag speichern", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func getUserWeekdays(c *gin.Context) {
-	userId := c.Param("userId")
-	weekdays := GetUserWeekdays(userId)
+	weekdays, err := GetUserWeekdays(c.Param("userId"))
+	if err != nil {
+		serverFehler(c, "Wochentage laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, weekdays)
 }
 
@@ -253,17 +411,22 @@ func updateUserWeekday(c *gin.Context) {
 
 	var update SingleWeekdayUpdate
 	if err := c.ShouldBindJSON(&update); err != nil {
-		c.JSON(400, gin.H{"error": "invalid payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
 
+	var err error
 	if update.Add {
-		AddUserWeekday(userId, update.Weekday)
+		err = AddUserWeekday(userId, update.Weekday)
 	} else {
-		RemoveUserWeekday(userId, update.Weekday)
+		err = RemoveUserWeekday(userId, update.Weekday)
+	}
+	if err != nil {
+		serverFehler(c, "Wochentag speichern", err)
+		return
 	}
 
-	c.JSON(200, gin.H{"status": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func updateUserPreferred(c *gin.Context) {
@@ -271,39 +434,44 @@ func updateUserPreferred(c *gin.Context) {
 
 	var update PreferredUpdate
 	if err := c.ShouldBindJSON(&update); err != nil {
-		c.JSON(400, gin.H{"error": "invalid payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
 
+	var err error
 	if update.Add {
-		AddPreferredUser(userId, update.OtherUserId)
+		err = AddPreferredUser(userId, update.OtherUserId)
 	} else {
-		RemovePreferredUser(userId, update.OtherUserId)
+		err = RemovePreferredUser(userId, update.OtherUserId)
+	}
+	if err != nil {
+		serverFehler(c, "Wunschpartner speichern", err)
+		return
 	}
 
-	c.JSON(200, gin.H{"status": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func getUserPreferred(c *gin.Context) {
-	userId := c.Param("userId")
+	data, err := GetPreferredUsers(c.Param("userId"))
+	if err != nil {
+		serverFehler(c, "Wunschpartner laden", err)
+		return
+	}
 
-	data := GetPreferredUsers(userId)
-
-	c.JSON(200, data)
+	c.JSON(http.StatusOK, data)
 }
 
 func GetEventsPDF(c *gin.Context) {
 	fromStr := c.Query("from")
 	toStr := c.Query("to")
 
-	// PDF erzeugen
 	pdfBytes, err := CreateEventPlanPDF(GetDB(), fromStr, toStr)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "PDF konnte nicht erzeugt werden", "details": err.Error()})
+		serverFehler(c, "PDF erzeugen", err)
 		return
 	}
 
-	// Download Header
 	c.Header("Content-Disposition", "attachment; filename=Miniplan.pdf")
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }

@@ -294,13 +294,29 @@ func loadEventsWithAssignedUsers(db *sql.DB, startDate string, endDate string) (
 	}
 	defer rows.Close()
 
-	var result []FullEvent
+	// Erst alle Messen einlesen, dann die Namen dazu. Die Unterabfrage lief
+	// vorher innerhalb der offenen Schleife und belegte dabei eine zweite
+	// Verbindung, und ihr Fehler wurde mit dem Hinweis "omitted for brevity"
+	// verworfen - fehlende Namen im Plan waeren damit unbemerkt geblieben.
+	var events []PdfEvent
 	for rows.Next() {
 		var ev PdfEvent
 		if err := rows.Scan(&ev.ID, &ev.Name, &ev.DateBegin, &ev.TimeBegin, &ev.Location); err != nil {
 			return nil, err
 		}
-		users, _ := loadAssignedUsers(db, ev.ID) // Error handling omitted for brevity
+		events = append(events, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	var result []FullEvent
+	for _, ev := range events {
+		users, err := loadAssignedUsers(db, ev.ID)
+		if err != nil {
+			return nil, err
+		}
 		result = append(result, FullEvent{Event: ev, Users: users})
 	}
 	return result, nil
@@ -316,8 +332,10 @@ func loadAssignedUsers(db *sql.DB, eventID int) ([]AssignedUser, error) {
 	var users []AssignedUser
 	for rows.Next() {
 		var u AssignedUser
-		rows.Scan(&u.Firstname, &u.Lastname)
+		if err := rows.Scan(&u.Firstname, &u.Lastname); err != nil {
+			return nil, err
+		}
 		users = append(users, u)
 	}
-	return users, nil
+	return users, rows.Err()
 }
