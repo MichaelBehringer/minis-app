@@ -47,7 +47,47 @@ func GetEventsForUser(userId string) ([]Event, error) {
 	}
 	// Ohne diese Pruefung sieht ein Abbruch mitten im Lesen wie eine kurze
 	// Liste aus - die Anwendung zeigt zu wenige Einsaetze und meldet nichts.
-	return events, results.Err()
+	if err := results.Err(); err != nil {
+		return nil, err
+	}
+	// Erst schliessen, dann die zweite Abfrage: solange die aeussere Abfrage
+	// laeuft, belegt sie ihre Verbindung.
+	results.Close()
+
+	for i := range events {
+		namen, err := getAssignedNames(events[i].Id)
+		if err != nil {
+			return nil, err
+		}
+		events[i].AssignedNames = namen
+	}
+
+	return events, nil
+}
+
+// getAssignedNames liefert die Namen aller zu einem Termin eingeteilten
+// Ministranten, alphabetisch.
+func getAssignedNames(eventId int) ([]string, error) {
+	rows, err := ExecuteSQL(`
+		SELECT CONCAT(u.firstname, ' ', u.lastname)
+		FROM plan p
+		INNER JOIN user u ON u.id = p.user_id
+		WHERE p.event_id = ?
+		ORDER BY u.lastname, u.firstname`, eventId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	namen := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		namen = append(namen, name)
+	}
+	return namen, rows.Err()
 }
 
 func GetEventsByDateRange(from string, to string) ([]PlannedEvent, error) {

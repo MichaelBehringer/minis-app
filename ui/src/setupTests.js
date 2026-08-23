@@ -12,7 +12,7 @@ if (!globalThis.ResizeObserver) {
 
 // jsdom implementiert window.matchMedia nicht. antd braucht es fuer die
 // responsiven Grid-Komponenten (Row/Col), sonst schlaegt jedes Rendern fehl.
-// react-responsive braucht es ebenfalls.
+// Ebenso der useIsMobile-Hook ueber antds Grid.useBreakpoint.
 if (!window.matchMedia) {
   window.matchMedia = (query) => ({
     matches: false,

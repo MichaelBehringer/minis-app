@@ -1,92 +1,134 @@
-import { useState } from 'react';
-import { Form, Input, Button, Checkbox, Card, Row, Col, Typography, App as AntdApp } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router';
-import { doPostRequest } from '../helper/RequestHelper';
-import './Authentication.css';
+import { useState } from 'react'
+import { Button, Card, Checkbox, Form, Input, Typography } from 'antd'
+import { LockOutlined, UserOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router'
+import { doPostRequest } from '../helper/RequestHelper'
+import { myToastError } from '../helper/ToastHelper'
 
-const { Title } = Typography;
+const { Title, Text } = Typography
 
 function Authentication(props) {
-	const { message } = AntdApp.useApp();
-	const navigate = useNavigate();
-	const [loading, setLoading] = useState(false);
+  const navigate = useNavigate()
+  const [loading, setLoading] = useState(false)
 
-	function handleLogin(values) {
-		setLoading(true);
-		const params = { username: values.username, password: values.password };
-		doPostRequest("login", params).then((response) => {
-			setLoading(false);
-			props.setToken(response.data.accessToken, values.remember);
-			navigate("/")
-		}, error => {
-			setLoading(false);
-			if (error.response.status === 401) {
-				message.error('Benutzername oder Passwort falsch!');
-			}
-			return error;
-		});
-	}
+  async function handleLogin(values) {
+    setLoading(true)
+    try {
+      const response = await doPostRequest('login', {
+        username: values.username,
+        password: values.password,
+      })
+      props.setToken(response.data.accessToken, values.remember)
+      navigate('/')
+    } catch (error) {
+      // error.response war vorher ungeprueft: bei einem Netzwerkfehler - kein
+      // WLAN, Server aus - gab es dort einen TypeError und damit gar keine
+      // Meldung. Genau der Fall, in dem eine Erklaerung noetig ist.
+      const status = error?.response?.status
+      if (status === 401) {
+        myToastError('Benutzername oder Passwort ist falsch')
+      } else if (status) {
+        myToastError('Anmeldung derzeit nicht möglich')
+      } else {
+        myToastError('Keine Verbindung zum Server')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
 
-	return (
-		<div style={{
-			height: '100vh',
-			backgroundImage: 'url(background_login.webp)',
-			backgroundSize: 'cover',
-			backgroundPosition: 'center',
-			display: 'flex',
-			justifyContent: 'center',
-			alignItems: 'center'
-		}}>
-			<Row justify="center" align="middle">
-				<Col>
-					<Card style={{ minWidth: 300, boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)' }}>
-						<Title level={2} style={{ textAlign: 'center' }}>Login</Title>
-						<Form
-							name="normal_login"
-							className="login-form"
-							initialValues={{ remember: false }}
-							onFinish={handleLogin}
-						>
-							<Form.Item
-								name="username"
-								rules={[{ required: true, message: 'Bitte Benutzernamen angeben!' }]}
-							>
-								<Input
-									className="login-input"
-									prefix={<UserOutlined className="site-form-item-icon" />}
-									placeholder="Benutzername"
-								/>
+  return (
+    <div
+      // login-bg statt eines Inline-Hintergrunds: das Bild wird per
+      // Media-Query erst ab 768px geladen. Am Handy verdeckt die Karte es
+      // ohnehin fast vollstaendig, und die Anfrage entsteht so gar nicht erst.
+      //
+      // 100dvh und nicht 100vh: vh rechnet mit der ausgefahrenen
+      // Adressleiste, die Karte saesse dann nicht in der Mitte.
+      className="login-bg"
+      style={{
+        minHeight: '100dvh',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 16,
+        paddingTop: 'calc(16px + var(--safe-top))',
+        paddingBottom: 'calc(16px + var(--safe-bottom))',
+      }}
+    >
+      <Card
+        style={{
+          width: '100%',
+          maxWidth: 380,
+          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+        }}
+      >
+        <Title level={3} style={{ textAlign: 'center', marginBottom: 4 }}>
+          Ministrantenplan
+        </Title>
+        <Text
+          type="secondary"
+          style={{ display: 'block', textAlign: 'center', marginBottom: 20 }}
+        >
+          Pfarrei Wemding
+        </Text>
 
-							</Form.Item>
-							<Form.Item
-								name="password"
-								rules={[{ required: true, message: 'Bitte Passwort angeben!' }]}
-							>
-								<Input
-									className="login-input"
-									prefix={<LockOutlined className="site-form-item-icon" />}
-									type="password"
-									placeholder="Passwort"
-								/>
-							</Form.Item>
-							<Form.Item>
-								<Form.Item name="remember" valuePropName="checked" noStyle>
-									<Checkbox>Angemeldet bleiben</Checkbox>
-								</Form.Item>
-							</Form.Item>
+        <Form
+          name="anmeldung"
+          initialValues={{ remember: true }}
+          onFinish={handleLogin}
+          layout="vertical"
+          requiredMark={false}
+        >
+          <Form.Item
+            name="username"
+            rules={[{ required: true, message: 'Bitte Benutzernamen angeben' }]}
+          >
+            <Input
+              prefix={<UserOutlined aria-hidden />}
+              placeholder="Benutzername"
+              aria-label="Benutzername"
+              autoComplete="username"
+              // Ohne das schlaegt iOS beim Benutzernamen einen Grossbuchstaben
+              // vor und korrigiert ihn eigenmaechtig.
+              autoCapitalize="none"
+              autoCorrect="off"
+              size="large"
+            />
+          </Form.Item>
 
-							<Form.Item style={{ textAlign: 'right' }}>
-								<Button type="primary" htmlType="submit" className="login-form-button" loading={loading}>
-									Log in
-								</Button>
-							</Form.Item>
-						</Form>
-					</Card>
-				</Col>
-			</Row>
-		</div>
-	);
-};
+          <Form.Item
+            name="password"
+            rules={[{ required: true, message: 'Bitte Passwort angeben' }]}
+          >
+            {/* Input.Password statt type="password": damit gibt es den
+                Umschalter zum Anzeigen, was am Handy den Unterschied macht. */}
+            <Input.Password
+              prefix={<LockOutlined aria-hidden />}
+              placeholder="Passwort"
+              aria-label="Passwort"
+              autoComplete="current-password"
+              size="large"
+            />
+          </Form.Item>
 
-export default Authentication;
+          <Form.Item name="remember" valuePropName="checked">
+            <Checkbox>Angemeldet bleiben</Checkbox>
+          </Form.Item>
+
+          <Button
+            type="primary"
+            htmlType="submit"
+            block
+            size="large"
+            loading={loading}
+          >
+            Anmelden
+          </Button>
+        </Form>
+      </Card>
+    </div>
+  )
+}
+
+export default Authentication

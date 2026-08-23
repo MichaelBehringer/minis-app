@@ -1,134 +1,262 @@
-import { useEffect, useState } from "react";
-import { Calendar, Table, Segmented, Spin, Card, Modal, Button } from "antd";
-import dayjs from "dayjs";
-import { doGetRequestAuth } from "../helper/RequestHelper";
+import { useEffect, useMemo, useState } from 'react'
+import {
+  Badge,
+  Calendar,
+  Card,
+  Empty,
+  Segmented,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+  theme,
+} from 'antd'
+import {
+  ClockCircleOutlined,
+  EnvironmentOutlined,
+  TeamOutlined,
+} from '@ant-design/icons'
+import dayjs from 'dayjs'
+import { doGetRequestAuth } from '../helper/RequestHelper'
+import { myToastError } from '../helper/ToastHelper'
+import useIsMobile from '../hooks/useIsMobile'
+import Sheet from './Sheet'
 
+// Uhrzeit aus dem Backend: "18:30:00".
+//
+// Das Formatargument wirkt nur, weil AppProviders das Plugin customParseFormat
+// laedt - ohne das ergab dayjs("18:30:00", "HH:mm:ss") Invalid Date, und genau
+// das stand hier vorher auf dem Bildschirm.
+function uhrzeit(wert) {
+  if (!wert) return ''
+  const d = dayjs(wert, 'HH:mm:ss')
+  return d.isValid() ? d.format('HH:mm') : String(wert).substring(0, 5)
+}
 
-export default function Home({ userId, token }) {
-  const [events, setEvents] = useState([]);
-  const [selectedEvents, setSelectedEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("calendar");
-  const [isModalOpen, setIsModalOpen] = useState(false);
+function tagText(dateBegin) {
+  const d = dayjs(dateBegin)
+  if (!d.isValid()) return dateBegin
 
-  function getEventsForDate(value) {
-    const dateStr = value.format("YYYY-MM-DD");
-    const todaysEvents = events.filter((e) => e.dateBegin === dateStr);
-    return todaysEvents
-  }
+  const heute = dayjs().startOf('day')
+  const tage = d.startOf('day').diff(heute, 'day')
 
-  useEffect(() => {
-    async function loadEvents() {
-      setLoading(true);
-      try {
-        await doGetRequestAuth(`user/${userId}`, token)
-        const res = await doGetRequestAuth(`events/${userId}`, token);
-        setEvents(res.data || []);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadEvents();
-  }, [userId, token]);
+  if (tage === 0) return 'Heute'
+  if (tage === 1) return 'Morgen'
+  return d.format('dddd, DD.MM.YYYY')
+}
 
-  const handleDateSelect = (date) => {
-    const todaysEvents = getEventsForDate(date)
-    if (todaysEvents.length !== 0) {
-      setSelectedEvents(todaysEvents)
-      setIsModalOpen(true)
-    }
-  };
+// Karte eines Einsatzes. Hervorgehoben, wenn es der naechste ist - die
+// eigentliche Frage auf dieser Seite ist "wann bin ich das naechste Mal dran".
+function EinsatzKarte({ ev, hervorgehoben, eigenerName }) {
+  const { token } = theme.useToken()
 
-  // Kalender-Event-Renderer
-  const dateCellRender = (value) => {
-    const todaysEvents = getEventsForDate(value)
-
-    return (
-      todaysEvents.length !== 0 ?
-        <div style={{ width: '100%', height: '100%', backgroundColor: 'royalblue', borderRadius: '10px' }}>
-
-        </div>
-        :
-        <div />
-    );
-  };
-
-  // Tabellenspalten
-  const columns = [
-    { title: "Beschreibung", dataIndex: "name", key: "name" },
-    { title: "Datum", dataIndex: "dateBegin", key: "dateBegin" },
-    { title: "Zeit", dataIndex: "timeBegin", key: "timeBegin" },
-    { title: "Ort", dataIndex: "location", key: "location" }
-  ];
+  // Die eigene Person aus der Liste nehmen - dass man selbst eingeteilt ist,
+  // ist der Grund, warum die Karte hier steht.
+  const andere = (ev.assignedNames ?? []).filter((n) => n !== eigenerName)
 
   return (
-    <div className="p-4 flex flex-col gap-4 max-w-4xl mx-auto">
+    <Card
+      size="small"
+      style={{
+        marginBottom: 12,
+        borderColor: hervorgehoben ? token.colorPrimary : undefined,
+        borderWidth: hervorgehoben ? 2 : 1,
+      }}
+    >
+      <Space direction="vertical" size={6} style={{ width: '100%' }}>
+        <Space align="center" wrap size={8}>
+          <Typography.Text strong style={{ fontSize: 16 }}>
+            {tagText(ev.dateBegin)}
+          </Typography.Text>
+          {hervorgehoben && <Tag color="processing">Als nächstes</Tag>}
+        </Space>
+
+        <Typography.Text style={{ fontSize: 15 }}>{ev.name}</Typography.Text>
+
+        <Space size={16} wrap>
+          <Typography.Text type="secondary">
+            <ClockCircleOutlined aria-hidden /> {uhrzeit(ev.timeBegin)} Uhr
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            <EnvironmentOutlined aria-hidden /> {ev.location}
+          </Typography.Text>
+        </Space>
+
+        {/* Wer sonst eingeteilt ist. Nach "wann bin ich dran" die zweite
+            Frage - und bisher nirgends in der Anwendung zu sehen. */}
+        {andere.length > 0 && (
+          <div>
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+              <TeamOutlined aria-hidden /> Mit dabei
+            </Typography.Text>
+            <div style={{ marginTop: 4 }}>
+              {andere.map((n) => (
+                <Tag key={n} style={{ marginBottom: 4 }}>
+                  {n}
+                </Tag>
+              ))}
+            </div>
+          </div>
+        )}
+      </Space>
+    </Card>
+  )
+}
+
+export default function Home({ userId, token }) {
+  const [events, setEvents] = useState([])
+  const [eigenerName, setEigenerName] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [ansicht, setAnsicht] = useState('liste')
+  const [zeigeVergangene, setZeigeVergangene] = useState(false)
+  const [tagesEvents, setTagesEvents] = useState([])
+  const [sheetOffen, setSheetOffen] = useState(false)
+  const isMobile = useIsMobile()
+
+  useEffect(() => {
+    async function laden() {
+      setLoading(true)
+      try {
+        const [person, res] = await Promise.all([
+          doGetRequestAuth(`user/${userId}`, token),
+          doGetRequestAuth(`events/${userId}`, token),
+        ])
+        setEigenerName(
+          `${person.data?.firstname ?? ''} ${person.data?.lastname ?? ''}`.trim()
+        )
+        setEvents(res.data || [])
+      } catch {
+        // Vorher stand hier nur ein finally: schlug das Laden fehl, zeigte die
+        // Seite eine leere Liste, als gaebe es keine Einsaetze.
+        myToastError('Einsätze konnten nicht geladen werden')
+      } finally {
+        setLoading(false)
+      }
+    }
+    laden()
+  }, [userId, token])
+
+  const { kommende, vergangene } = useMemo(() => {
+    const heute = dayjs().startOf('day')
+    const sortiert = [...events].sort((a, b) =>
+      String(a.dateBegin).localeCompare(String(b.dateBegin))
+    )
+    return {
+      kommende: sortiert.filter((e) => !dayjs(e.dateBegin).isBefore(heute)),
+      // Die jüngste Vergangenheit zuerst.
+      vergangene: sortiert
+        .filter((e) => dayjs(e.dateBegin).isBefore(heute))
+        .reverse(),
+    }
+  }, [events])
+
+  const eventsAmTag = (wert) => {
+    const datum = wert.format('YYYY-MM-DD')
+    return events.filter((e) => e.dateBegin === datum)
+  }
+
+  // Im Kalender die Anzahl anzeigen statt eines farbigen Blocks. Der Block
+  // sagte nur "hier ist irgendwas" - man musste tippen, um es zu erfahren.
+  const zelleRendern = (wert) => {
+    const anzahl = eventsAmTag(wert).length
+    if (anzahl === 0) return null
+    return (
+      <div style={{ textAlign: 'center', lineHeight: 1 }}>
+        <Badge count={anzahl} size="small" />
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+        <Spin size="large" />
+      </div>
+    )
+  }
+
+  const liste = zeigeVergangene ? vergangene : kommende
+
+  return (
+    <div style={{ maxWidth: 760, margin: '0 auto' }}>
       <Segmented
         block
-        options={[{ label: "Kalender", value: "calendar" }, { label: "Tabelle", value: "table" }]}
-        value={view}
-        onChange={setView}
+        style={{ marginBottom: 12 }}
+        value={ansicht}
+        onChange={setAnsicht}
+        options={[
+          { label: 'Liste', value: 'liste' },
+          { label: 'Kalender', value: 'kalender' },
+        ]}
       />
 
-      {loading ? (
-        <div className="w-full flex justify-center py-10">
-          <Spin size="large" />
-        </div>
-      ) : (
-        <Card className="shadow-md rounded-2xl p-2">
-          {view === "calendar" && (
-            <Calendar fullscreen={true} showWeek cellRender={dateCellRender} onSelect={handleDateSelect} />
-          )}
+      {ansicht === 'liste' && (
+        <>
+          <Segmented
+            block
+            size="small"
+            style={{ marginBottom: 12 }}
+            value={zeigeVergangene ? 'vergangen' : 'kommend'}
+            onChange={(v) => setZeigeVergangene(v === 'vergangen')}
+            options={[
+              { label: `Kommende (${kommende.length})`, value: 'kommend' },
+              { label: `Vergangene (${vergangene.length})`, value: 'vergangen' },
+            ]}
+          />
 
-          {view === "table" && (
-            <Table
-              dataSource={events.map((e) => ({ ...e, key: e.id }))}
-              columns={columns}
-              pagination={{ pageSize: 10 }}
-              scroll={{ x: true }}
+          {liste.length === 0 ? (
+            <Empty
+              description={
+                zeigeVergangene
+                  ? 'Keine vergangenen Einsätze'
+                  : 'Du bist derzeit zu keiner Messe eingeteilt'
+              }
             />
+          ) : (
+            liste.map((ev, i) => (
+              <EinsatzKarte
+                key={ev.id}
+                ev={ev}
+                eigenerName={eigenerName}
+                hervorgehoben={!zeigeVergangene && i === 0}
+              />
+            ))
           )}
+        </>
+      )}
+
+      {ansicht === 'kalender' && (
+        <Card size="small" styles={{ body: { padding: isMobile ? 4 : 12 } }}>
+          <Calendar
+            // Am Handy die kompakte Form: ein Monatsraster in voller Breite
+            // ist auf 390px gequetscht.
+            fullscreen={!isMobile}
+            cellRender={zelleRendern}
+            onSelect={(datum, info) => {
+              if (info?.source !== 'date') return
+              const treffer = eventsAmTag(datum)
+              if (treffer.length > 0) {
+                setTagesEvents(treffer)
+                setSheetOffen(true)
+              }
+            }}
+          />
         </Card>
       )}
-      <Modal
-        title={null}
-        open={isModalOpen}
-        footer={<Button type="primary" onClick={() => setIsModalOpen(false)}>Ok</Button>}
-        closable={false}
-        onCancel={() => setIsModalOpen(false)}
+
+      <Sheet
+        open={sheetOffen}
+        onClose={() => setSheetOffen(false)}
+        title={
+          tagesEvents.length > 0
+            ? dayjs(tagesEvents[0].dateBegin).format('dddd, DD.MM.YYYY')
+            : 'Einsätze'
+        }
       >
-        {selectedEvents &&
-          selectedEvents.map((ev) => (
-            <Card
-              key={ev.id}
-              size="small"
-              style={{
-                marginBottom: 12,
-                borderRadius: 12,
-                border: "1px solid #e5e7eb",
-                boxShadow: "0 2px 6px rgba(0,0,0,0.06)"
-              }}
-            >
-              <div style={{ fontWeight: "bold", fontSize: 15 }}>
-                {ev.name}
-              </div>
-
-              <div style={{ marginTop: 4 }}>
-                📅 {dayjs(ev.dateBegin).format("DD.MM.YYYY")}
-              </div>
-
-              <div>
-                ⏰ {dayjs(ev.timeBegin, "HH:mm:ss").format("HH:mm")} Uhr
-              </div>
-
-              <div>
-                📍 {ev.location}
-              </div>
-            </Card>
-          ))}
-
-      </Modal>
-
+        {tagesEvents.map((ev) => (
+          <EinsatzKarte key={ev.id} ev={ev} eigenerName={eigenerName} />
+        ))}
+      </Sheet>
     </div>
-  );
+  )
 }

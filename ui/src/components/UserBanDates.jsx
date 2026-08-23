@@ -1,81 +1,107 @@
-import { useEffect, useState } from "react";
-import { Calendar, Spin } from "antd";
-import { myToastSuccess } from "../helper/ToastHelper";
-import { doGetRequestAuth, doPatchRequestAuth } from "../helper/RequestHelper";
+import { useEffect, useMemo, useState } from 'react'
+import { Alert, Calendar, Spin, Tag, Typography, theme } from 'antd'
+import dayjs from 'dayjs'
+import { myToastError, myToastSuccess } from '../helper/ToastHelper'
+import { doGetRequestAuth, doPatchRequestAuth } from '../helper/RequestHelper'
 
 export default function UserBanDates({ userId, token }) {
-    const [loading, setLoading] = useState(true);
-    const [banDates, setBanDates] = useState([]);
+  const { token: t } = theme.useToken()
+  const [loading, setLoading] = useState(true)
+  const [banDates, setBanDates] = useState([])
 
-    useEffect(() => {
-        async function load() {
-            setLoading(true);
-            const res = await doGetRequestAuth(`user/${userId}/ban`, token);
-            setBanDates(res.data || []);
-            setLoading(false);
-        }
-        load();
-    }, [userId, token]);
+  useEffect(() => {
+    async function laden() {
+      setLoading(true)
+      try {
+        const res = await doGetRequestAuth(`user/${userId}/ban`, token)
+        setBanDates(res.data || [])
+      } catch {
+        myToastError('Sperrtage konnten nicht geladen werden')
+      } finally {
+        setLoading(false)
+      }
+    }
+    laden()
+  }, [userId, token])
 
-    // prüfen: ist Datum gesperrt?
-    const isBanned = (date) => {
-        const d = date.format("YYYY-MM-DD");
-        return banDates.includes(d);
-    };
+  // Die meisten Sperrtage liegen in der Vergangenheit - im Bestand rund vier
+  // Fuenftel. Fuer die Bedienung zaehlt, was noch kommt.
+  const kuenftige = useMemo(() => {
+    const heute = dayjs().format('YYYY-MM-DD')
+    return banDates.filter((d) => d >= heute).length
+  }, [banDates])
 
-    // toggle sperrung
-    const toggleDate = async (value) => {
-        const dateString = value.format("YYYY-MM-DD");
-        const isBan = banDates.includes(dateString);
+  const umschalten = async (wert) => {
+    const datum = wert.format('YYYY-MM-DD')
+    const gesperrt = banDates.includes(datum)
 
-        const payload = {
-            date: dateString,
-            add: !isBan
-        };
+    const alt = banDates
+    const neu = gesperrt
+      ? banDates.filter((d) => d !== datum)
+      : [...banDates, datum]
 
-        const updated = isBan
-            ? banDates.filter(d => d !== dateString)
-            : [...banDates, dateString];
+    // Sofort anzeigen, damit das Antippen nicht auf den Server wartet.
+    setBanDates(neu)
 
-        setBanDates(updated);
+    try {
+      await doPatchRequestAuth(
+        `user/${userId}/ban`,
+        { date: datum, add: !gesperrt },
+        token
+      )
+      myToastSuccess(gesperrt ? 'Sperrung entfernt' : 'Tag gesperrt')
+    } catch {
+      // Vorher blieb die Anzeige auf dem neuen Stand, auch wenn der Server
+      // nichts gespeichert hat.
+      setBanDates(alt)
+      myToastError('Änderung konnte nicht gespeichert werden')
+    }
+  }
 
-        await doPatchRequestAuth(`user/${userId}/ban`, payload, token);
-        myToastSuccess("Änderung gespeichert");
-    };
-
-
-    // Datum markieren
-    const dateCellRender = (value) => {
-        if (isBanned(value)) {
-            return (
-                <div
-                    style={{
-                        backgroundColor: "#ffccc7",
-                        borderRadius: 6,
-                        padding: 2,
-                        textAlign: "center"
-                    }}
-                >🛑</div>
-            );
-        }
-        return null;
-    };
-
-    if (loading) return <Spin />;
-
+  const zelleRendern = (wert) => {
+    if (!banDates.includes(wert.format('YYYY-MM-DD'))) return null
     return (
-        <div>
-            <label><center>Wähle die Tage aus, an denen du nicht ministrieren kannst.</center></label>
-            <hr></hr>
-            <Calendar
-                fullscreen={false}
-                cellRender={dateCellRender}
-                onSelect={(value, info) => {
-                    if (info?.source === "date") {
-                        toggleDate(value);
-                    }
-                }}
-            />
-        </div>
-    );
+      <div
+        aria-label="gesperrt"
+        style={{
+          height: 6,
+          borderRadius: 3,
+          margin: '2px 6px 0',
+          background: t.colorError,
+        }}
+      />
+    )
+  }
+
+  if (loading) return <Spin />
+
+  return (
+    <div>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="Tage antippen, an denen du nicht ministrieren kannst."
+      />
+
+      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+        <Tag color="red">{kuenftige}</Tag> künftige Sperrungen
+        {banDates.length > kuenftige && (
+          <span> · {banDates.length - kuenftige} in der Vergangenheit</span>
+        )}
+      </Typography.Text>
+
+      <Calendar
+        // Kompakte Form und im aktuellen Monat beginnen. Bei bis zu 339
+        // Eintraegen pro Person darf der Einstieg nicht irgendwo in der
+        // Historie liegen.
+        fullscreen={false}
+        defaultValue={dayjs()}
+        cellRender={zelleRendern}
+        onSelect={(wert, info) => {
+          if (info?.source === 'date') umschalten(wert)
+        }}
+      />
+    </div>
+  )
 }

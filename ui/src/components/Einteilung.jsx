@@ -1,485 +1,375 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  DatePicker,
   Button,
   Card,
-  Select,
-  Row,
   Col,
+  DatePicker,
+  Empty,
+  Row,
   Space,
-  Modal,
-  Form,
-  Input,
-  InputNumber,
-  Tag,
   Spin,
-  Checkbox,
-} from "antd";
-import { DownloadOutlined, PlusOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
+  Tag,
+  Typography,
+} from 'antd'
+import {
+  ClockCircleOutlined,
+  DownloadOutlined,
+  EnvironmentOutlined,
+  PlusOutlined,
+  TeamOutlined,
+} from '@ant-design/icons'
+import dayjs from 'dayjs'
 import {
   doGetRequestAuth,
   doGetRequestBlobAuth,
   doPatchRequestAuth,
   doPutRequestAuth,
-} from "../helper/RequestHelper";
-import {
-  myToastError,
-  myToastInfo,
-  myToastSuccess,
-} from "../helper/ToastHelper";
+} from '../helper/RequestHelper'
+import { myToastError, myToastInfo, myToastSuccess } from '../helper/ToastHelper'
+import useIsMobile from '../hooks/useIsMobile'
+import { nameVon } from '../helper/einteilung'
+import AssignSheet from './AssignSheet'
+import NeueMesseSheet from './NeueMesseSheet'
 
-const { RangePicker } = DatePicker;
+const { RangePicker } = DatePicker
 
-export default function Einteilung({ token }) {
-  const [dateRange, setDateRange] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [users, setUsers] = useState([]);
+// Beim Öffnen nicht mit leerem Bildschirm anfangen: von heute an zwei Monate
+// nach vorn ist der Zeitraum, in dem geplant wird.
+function standardZeitraum() {
+  return [dayjs().startOf('day'), dayjs().add(2, 'month').endOf('day')]
+}
 
-  const [locationList, setLocationList] = useState([]);
-  const [newEventModalOpen, setNewEventModalOpen] = useState(false);
+function uhrzeit(wert) {
+  if (!wert) return ''
+  const d = dayjs(wert, 'HH:mm:ss')
+  return d.isValid() ? d.format('HH:mm') : String(wert).substring(0, 5)
+}
 
-  const [assignmentOptionsByEventId, setAssignmentOptionsByEventId] = useState({});
-  const [assignmentOptionsLoadingByEventId, setAssignmentOptionsLoadingByEventId] = useState({});
+// Karte einer Messe mit dem Einstieg ins Einteilen.
+function MesseKarte({ ev, namenNachId, onEinteilen }) {
+  const zugewiesen = ev.assignedUserIds ?? []
+  const soll = ev.minimalUser ?? 0
+  const anzahl = zugewiesen.length
 
-  const [form] = Form.useForm();
-
-  const AVAILABILITY_META = {
-    ok: {
-      groupLabel: "Alles ok",
-      tagText: "OK",
-      tagColor: "green",
-    },
-    weekday_inactive: {
-      groupLabel: "Wochentag nicht aktiv",
-      tagText: "Wochentag",
-      tagColor: "orange",
-    },
-    banned: {
-      groupLabel: "Gesperrt",
-      tagText: "Sperrung",
-      tagColor: "red",
-    },
-    inactive: {
-      groupLabel: "Inaktive Benutzer",
-      tagText: "Inaktiv",
-      tagColor: "default",
-    },
-  };
-
-  const AVAILABILITY_ORDER = [
-    "ok",
-    "weekday_inactive",
-    "banned",
-    "inactive",
-  ];
-
-  const compareAssignmentOptions = (a, b) => {
-  const aLast =
-    a.lastAssignmentDaysBefore !== undefined && a.lastAssignmentDaysBefore !== null
-      ? a.lastAssignmentDaysBefore
-      : -1;
-
-  const bLast =
-    b.lastAssignmentDaysBefore !== undefined && b.lastAssignmentDaysBefore !== null
-      ? b.lastAssignmentDaysBefore
-      : -1;
-
-  if (aLast !== bLast) {
-    return bLast - aLast;
-  }
-
-  const aLastName = (a.lastname || "").toLowerCase();
-  const bLastName = (b.lastname || "").toLowerCase();
-
-  if (aLastName !== bLastName) {
-    return aLastName.localeCompare(bLastName);
-  }
-
-  return (a.firstname || "").toLowerCase().localeCompare(
-    (b.firstname || "").toLowerCase()
-  );
-};
-
-  const loadAssignmentOptionsForEvent = async (eventId) => {
-  // Nur parallele Doppel-Requests verhindern,
-  // aber vorhandene Daten NICHT als Cache verwenden.
-  if (assignmentOptionsLoadingByEventId[eventId]) {
-    return;
-  }
-
-  setAssignmentOptionsLoadingByEventId((prev) => ({
-    ...prev,
-    [eventId]: true,
-  }));
-
-  try {
-    const res = await doGetRequestAuth(
-      `event/${eventId}/assignment-options`,
-      token
-    );
-
-    setAssignmentOptionsByEventId((prev) => ({
-      ...prev,
-      [eventId]: res.data.options || [],
-    }));
-  } catch {
-    myToastError("Verfügbarkeit konnte nicht geladen werden");
-  } finally {
-    setAssignmentOptionsLoadingByEventId((prev) => ({
-      ...prev,
-      [eventId]: false,
-    }));
-  }
-};
-
-  const getUserName = (u) => `${u.firstname} ${u.lastname}`;
-
-  const renderAssignmentDistanceCompact = (u) => {
-  const last =
-    u.lastAssignmentDaysBefore !== undefined && u.lastAssignmentDaysBefore !== null
-      ? u.lastAssignmentDaysBefore
-      : "–";
-
-  const next =
-    u.nextAssignmentDaysAfter !== undefined && u.nextAssignmentDaysAfter !== null
-      ? u.nextAssignmentDaysAfter
-      : "–";
-
-  return `${last}/${next}`;
-};
-
-const renderUserOptionLabel = (u) => {
-  const meta = AVAILABILITY_META[u.status] || AVAILABILITY_META.ok;
-  const name = getUserName(u);
-  const distanceText = renderAssignmentDistanceCompact(u);
+  // minimalUser ist ein Sollwert, kein Limit - in den Daten wird er
+  // ueberwiegend ueberschritten. Deshalb drei neutrale Zustaende statt einer
+  // Fehlermeldung.
+  const farbe =
+    anzahl === 0 ? 'default' : anzahl < soll ? 'orange' : 'green'
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        gap: 8,
-      }}
-    >
-      <span
-        style={{
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {name}
-      </span>
-
-      <span
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 4,
-          flexShrink: 0,
-        }}
-      >
-        <Tag color={meta.tagColor} style={{ marginInlineEnd: 0 }}>
-          {meta.tagText}
+    <Card
+      size="small"
+      style={{ height: '100%' }}
+      title={
+        <span style={{ whiteSpace: 'normal', lineHeight: 1.35 }}>{ev.name}</span>
+      }
+      extra={
+        <Tag color={farbe} style={{ marginInlineEnd: 0 }}>
+          {anzahl}/{soll}
         </Tag>
+      }
+    >
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        <Typography.Text strong>
+          {dayjs(ev.dateBegin).format('dd, DD.MM.YYYY')}
+        </Typography.Text>
 
-        <span
-          style={{
-            fontSize: 12,
-            color: "#888",
-            minWidth: 38,
-            textAlign: "right",
-            fontVariantNumeric: "tabular-nums",
-          }}
+        <Space size={14} wrap>
+          <Typography.Text type="secondary">
+            <ClockCircleOutlined aria-hidden /> {uhrzeit(ev.timeBegin)}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            <EnvironmentOutlined aria-hidden /> {ev.location}
+          </Typography.Text>
+        </Space>
+
+        <div style={{ minHeight: 28 }}>
+          {anzahl === 0 ? (
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+              <TeamOutlined aria-hidden /> Noch niemand eingeteilt
+            </Typography.Text>
+          ) : (
+            zugewiesen.map((id) => (
+              <Tag key={id} style={{ marginBottom: 4 }}>
+                {namenNachId.get(id) ?? `#${id}`}
+              </Tag>
+            ))
+          )}
+        </div>
+
+        <Button
+          block
+          type={anzahl < soll ? 'primary' : 'default'}
+          onClick={() => onEinteilen(ev)}
+          style={{ marginTop: 4 }}
         >
-          {distanceText}
-        </span>
-      </span>
-    </div>
-  );
-};
+          Einteilen
+        </Button>
+      </Space>
+    </Card>
+  )
+}
 
-  const getAssignmentSelectOptions = (eventId) => {
-  const loadedOptions = assignmentOptionsByEventId[eventId];
+export default function Einteilung({ token }) {
+  const isMobile = useIsMobile()
 
-  if (!loadedOptions) {
-    return users.map((u) => ({
-      value: u.id,
-      label: getUserName(u),
-      searchLabel: getUserName(u),
-    }));
-  }
+  const [zeitraum, setZeitraum] = useState(standardZeitraum)
+  const [events, setEvents] = useState([])
+  // Startet auf true: der erste Ladevorgang laeuft schon, wenn der Bildschirm
+  // erscheint.
+  const [laedtEvents, setLaedtEvents] = useState(true)
+  const [locationList, setLocationList] = useState([])
+  const [alleMinis, setAlleMinis] = useState([])
 
-  return AVAILABILITY_ORDER.map((status) => {
-    const meta = AVAILABILITY_META[status];
+  const [neueMesseOffen, setNeueMesseOffen] = useState(false)
 
-    return {
-      label: <span>{meta.groupLabel}</span>,
-      title: meta.groupLabel,
-      options: loadedOptions
-        .filter((u) => u.status === status)
-        .sort(compareAssignmentOptions)
-        .map((u) => {
-          const name = getUserName(u);
+  const [aktivesEvent, setAktivesEvent] = useState(null)
+  const [optionen, setOptionen] = useState([])
+  const [laedtOptionen, setLaedtOptionen] = useState(false)
 
-          return {
-            value: u.id,
-            label: renderUserOptionLabel(u),
-            searchLabel: `${name} ${meta.groupLabel} ${u.reason || ""} ${renderAssignmentDistanceCompact(u)}`,
-            disabled: u.status === "inactive",
-          };
-        }),
-    };
-  }).filter((group) => group.options.length > 0);
-};
+  // Namen zu den zugewiesenen Ids. Die Karten zeigen Namen, das Backend
+  // liefert bei den Messen nur Ids.
+  const namenNachId = useMemo(() => {
+    const map = new Map()
+    for (const u of alleMinis) map.set(u.id, nameVon(u))
+    return map
+  }, [alleMinis])
 
-  const filterUserOption = (input, option) => {
-    const text =
-      option?.searchLabel ||
-      (typeof option?.label === "string" ? option.label : "");
+  // Nur holen, ohne Zustand zu setzen - damit derselbe Code aus einem
+  // Effekt und aus einem Bedienschritt heraus benutzt werden kann.
+  const holeEvents = useCallback(
+    async (bereich) => {
+      const von = dayjs(bereich[0]).format('YYYY-MM-DD')
+      const bis = dayjs(bereich[1]).format('YYYY-MM-DD')
+      const res = await doGetRequestAuth(`events?from=${von}&to=${bis}`, token)
+      return res.data || []
+    },
+    [token]
+  )
 
-    return text.toLowerCase().includes(input.toLowerCase());
-  };
-
-  const setAssignedUsersForEvent = (eventId, assignedUserIds) => {
-    setEvents((prev) =>
-      prev.map((event) =>
-        event.id === eventId
-          ? {
-            ...event,
-            assignedUserIds,
-          }
-          : event
-      )
-    );
-  };
-
-  const handleAssignmentChange = async (ev, newIds) => {
-    const oldIds = ev.assignedUserIds || [];
-
-    const addedIds = newIds.filter((id) => !oldIds.includes(id));
-    const removedIds = oldIds.filter((id) => !newIds.includes(id));
-
-    setAssignedUsersForEvent(ev.id, newIds);
-
-    try {
-      await Promise.all([
-        ...addedIds.map((userId) =>
-          doPatchRequestAuth(
-            `events/${ev.id}/assign/add`,
-            { userId },
-            token
-          )
-        ),
-        ...removedIds.map((userId) =>
-          doPatchRequestAuth(
-            `events/${ev.id}/assign/remove`,
-            { userId },
-            token
-          )
-        ),
-      ]);
-    } catch {
-      setAssignedUsersForEvent(ev.id, oldIds);
-      myToastError("Zuweisung konnte nicht gespeichert werden");
-    }
-  };
+  // Fuer Bedienschritte: Zeitraum gewechselt, Messe angelegt.
+  const ladeEvents = useCallback(
+    async (bereich) => {
+      if (!bereich || !bereich[0] || !bereich[1]) return
+      setLaedtEvents(true)
+      try {
+        setEvents(await holeEvents(bereich))
+      } catch {
+        myToastError('Messen konnten nicht geladen werden')
+      } finally {
+        setLaedtEvents(false)
+      }
+    },
+    [holeEvents]
+  )
 
   useEffect(() => {
-    doGetRequestAuth("user", token).then((res) => setUsers(res.data));
-    doGetRequestAuth("location", token).then((res) => setLocationList(res.data));
-  }, [token]);
+    doGetRequestAuth('user', token)
+      .then((res) => setAlleMinis(res.data || []))
+      .catch(() => myToastError('Ministrantenliste konnte nicht geladen werden'))
+    doGetRequestAuth('location', token)
+      .then((res) => setLocationList(res.data || []))
+      .catch(() => myToastError('Orte konnten nicht geladen werden'))
+  }, [token])
 
-  const loadEvents = (range) => {
-    if (!range || !range[0] || !range[1]) return;
-    const from = dayjs(range[0]).format("YYYY-MM-DD");
-    const to = dayjs(range[1]).format("YYYY-MM-DD");
+  // Erstes Laden. Der Zustand wird erst nach dem await gesetzt, nicht
+  // synchron im Effekt - sonst folgt auf das Rendern sofort das naechste.
+  // Das Abbruch-Flag verhindert ein Setzen nach dem Ausblenden.
+  useEffect(() => {
+    let abgebrochen = false
 
-    doGetRequestAuth(`events?from=${from}&to=${to}`, token).then((res) => {
-      setEvents(res.data);
-    });
-  };
+    holeEvents(standardZeitraum())
+      .then((daten) => {
+        if (!abgebrochen) setEvents(daten)
+      })
+      .catch(() => {
+        if (!abgebrochen) myToastError('Messen konnten nicht geladen werden')
+      })
+      .finally(() => {
+        if (!abgebrochen) setLaedtEvents(false)
+      })
 
-  // Der Plan kommt jetzt als Blob mit Token statt ueber window.open.
-  //
-  // Zwei Gruende: window.open kann keinen Authorization-Header setzen, und
-  // /pdf/events ist nicht mehr oeffentlich. Ausserdem zeigte der bisherige
-  // relative Pfad gar nicht auf das Backend - nginx kennt nur / und /server/,
-  // der Knopf lieferte in Produktion die index.html statt einer PDF.
-  const downloadPDF = async () => {
-    if (!dateRange || !dateRange[0] || !dateRange[1]) {
-      myToastInfo("Bitte zuerst einen Zeitraum auswählen");
-      return;
+    return () => {
+      abgebrochen = true
     }
+  }, [holeEvents])
 
-    const from = dayjs(dateRange[0]).format("YYYY-MM-DD");
-    const to = dayjs(dateRange[1]).format("YYYY-MM-DD");
+  const oeffneEinteilen = async (ev) => {
+    setAktivesEvent(ev)
+    setOptionen([])
+    setLaedtOptionen(true)
+    try {
+      const res = await doGetRequestAuth(
+        `event/${ev.id}/assignment-options`,
+        token
+      )
+      setOptionen(res.data.options || [])
+    } catch {
+      myToastError('Verfügbarkeit konnte nicht geladen werden')
+    } finally {
+      setLaedtOptionen(false)
+    }
+  }
+
+  const zugewiesenAktiv = aktivesEvent
+    ? events.find((e) => e.id === aktivesEvent.id)?.assignedUserIds ?? []
+    : []
+
+  const setzeZuweisung = (eventId, ids) => {
+    setEvents((prev) =>
+      prev.map((e) => (e.id === eventId ? { ...e, assignedUserIds: ids } : e))
+    )
+  }
+
+  // Ein Tippen ist genau eine Änderung. Vorher wurde die ganze Liste des
+  // Mehrfach-Selects verglichen und daraus ein Stapel Anfragen abgeleitet.
+  const umschalten = async (userId) => {
+    if (!aktivesEvent) return
+
+    const alt = zugewiesenAktiv
+    const hinzu = !alt.includes(userId)
+    const neu = hinzu ? [...alt, userId] : alt.filter((id) => id !== userId)
+
+    // Sofort anzeigen, damit das Antippen nicht auf den Server wartet.
+    setzeZuweisung(aktivesEvent.id, neu)
 
     try {
-      const res = await doGetRequestBlobAuth(
-        `pdf/events?from=${from}&to=${to}`,
+      await doPatchRequestAuth(
+        `events/${aktivesEvent.id}/assign/${hinzu ? 'add' : 'remove'}`,
+        { userId },
         token
-      );
-
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `Miniplan_${from}_bis_${to}.pdf`;
-      a.click();
-      // Ohne das Freigeben bleibt der Blob bis zum Neuladen im Speicher.
-      URL.revokeObjectURL(url);
+      )
     } catch {
-      myToastError("Plan konnte nicht erzeugt werden");
+      setzeZuweisung(aktivesEvent.id, alt)
+      myToastError('Änderung konnte nicht gespeichert werden')
     }
-  };
+  }
 
-  const submitNewEvent = () => {
-    form.validateFields().then((values) => {
-      const payload = {
-        name: values.name,
-        dateBegin: values.date.format("YYYY-MM-DD"),
-        timeBegin: values.time.format("HH:mm:ss"),
-        locationId: values.locationId,
-        minimalUser: values.minimalUser,
-        ignoreWeekday: values.ignoreWeekday,
-      };
+  const speichereMessen = async (neueEvents) => {
+    try {
+      if (neueEvents.length === 1) {
+        await doPutRequestAuth('event', neueEvents[0], token)
+        myToastSuccess('Messe angelegt')
+      } else {
+        await doPutRequestAuth('events', { events: neueEvents }, token)
+        myToastSuccess(`${neueEvents.length} Messen angelegt`)
+      }
+      await ladeEvents(zeitraum)
+      return true
+    } catch {
+      myToastError('Messen konnten nicht angelegt werden')
+      return false
+    }
+  }
 
-      doPutRequestAuth("event", payload, token).then(() => {
-        setNewEventModalOpen(false);
-        form.resetFields();
-        loadEvents(dateRange);
-        myToastSuccess("Messe angelegt");
-      });
-    }).catch(() => {
-    });
-  };
+  const pdfHerunterladen = async () => {
+    if (!zeitraum || !zeitraum[0] || !zeitraum[1]) {
+      myToastInfo('Bitte zuerst einen Zeitraum auswählen')
+      return
+    }
+
+    const von = dayjs(zeitraum[0]).format('YYYY-MM-DD')
+    const bis = dayjs(zeitraum[1]).format('YYYY-MM-DD')
+
+    try {
+      // Als Blob mit Token, nicht per window.open: der Endpunkt ist nicht mehr
+      // oeffentlich, und ein window.open kann keinen Header setzen. Der
+      // bisherige relative Pfad zeigte ohnehin nicht auf das Backend - nginx
+      // kennt nur / und /server/, der Knopf lieferte die index.html.
+      const res = await doGetRequestBlobAuth(
+        `pdf/events?from=${von}&to=${bis}`,
+        token
+      )
+
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Miniplan_${von}_bis_${bis}.pdf`
+      a.click()
+      // Ohne das Freigeben bleibt der Blob bis zum Neuladen im Speicher.
+      URL.revokeObjectURL(url)
+    } catch {
+      myToastError('Plan konnte nicht erzeugt werden')
+    }
+  }
 
   return (
     <div>
-      {/* Buttons umbrechen automatisch */}
-      <Space style={{ marginBottom: 20 }} wrap>
+      <Space
+        direction={isMobile ? 'vertical' : 'horizontal'}
+        style={{ width: '100%', marginBottom: 16 }}
+        size={8}
+      >
         <RangePicker
-          value={dateRange}
+          style={{ width: isMobile ? '100%' : undefined }}
+          value={zeitraum}
+          format="DD.MM.YYYY"
+          allowClear={false}
           onChange={(v) => {
-            setDateRange(v);
-            loadEvents(v);
+            setZeitraum(v)
+            ladeEvents(v)
           }}
         />
 
-        <Button icon={<PlusOutlined />} type="primary" onClick={() => setNewEventModalOpen(true)}>
-          Neue Messe
-        </Button>
-
-        <Button onClick={downloadPDF} icon={<DownloadOutlined />}>PDF Export</Button>
+        <Space style={{ width: isMobile ? '100%' : undefined }} size={8}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined aria-hidden />}
+            onClick={() => setNeueMesseOffen(true)}
+            block={isMobile}
+          >
+            Messe anlegen
+          </Button>
+          <Button
+            icon={<DownloadOutlined aria-hidden />}
+            onClick={pdfHerunterladen}
+            block={isMobile}
+          >
+            Plan als PDF
+          </Button>
+        </Space>
       </Space>
 
-      {/* NEUE MESSE MODAL */}
-      <Modal
-        open={newEventModalOpen}
-        title="Neue Messe anlegen"
-        onCancel={() => setNewEventModalOpen(false)}
-        onOk={submitNewEvent}
-        okText="Speichern"
-        cancelText="Abbrechen"
-      >
-        <Form layout="vertical" form={form}>
-          <Form.Item
-            label="Name"
-            name="name"
-            rules={[{ required: true, message: "Bitte Name eingeben" }]}
-          >
-            <Input />
-          </Form.Item>
-
-          <Form.Item
-            label="Datum"
-            name="date"
-            rules={[{ required: true, message: "Bitte Datum wählen" }]}
-          >
-            <DatePicker />
-          </Form.Item>
-
-          <Form.Item
-            label="Uhrzeit"
-            name="time"
-            rules={[{ required: true, message: "Bitte Uhrzeit wählen" }]}
-          >
-            <DatePicker picker="time" format="HH:mm" />
-          </Form.Item>
-
-          <Form.Item
-            label="Ort"
-            name="locationId"
-            rules={[{ required: true, message: "Bitte Ort auswählen" }]}
-          >
-            <Select
-              options={locationList.map((loc) => ({
-                value: loc.id,
-                label: loc.name,
-              }))}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Minimale Ministranten"
-            name="minimalUser"
-            rules={[{ required: true, message: "Bitte Anzahl eingeben" }]}
-          >
-            <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
-
-          <Form.Item
-            label="WochentagIgnorieren"
-            name="ignoreWeekday"
-            valuePropName="checked"
-          >
-            <Checkbox>Wochentag Ignorieren</Checkbox>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Row gutter={[16, 16]}>
-        {events.map((ev) => (
-          <Col xs={24} sm={12} md={8} lg={6} xl={4} key={ev.id}>
-            <Card title={ev.name}>
-              <p>
-                Datum:{" "}
-                <strong>
-                  {ev.dateBegin} {ev.timeBegin.substring(0, 5)}
-                </strong>
-              </p>
-              <p>
-                Ort: <strong>{ev.location}</strong>
-              </p>
-              <p>
-                Minimum Ministranten: <strong>{ev.minimalUser}</strong>
-              </p>
-
-              <Select
-                mode="multiple"
-                style={{ width: "100%", marginBottom: 12 }}
-                placeholder="Benutzer zuordnen"
-                value={ev.assignedUserIds || []}
-                showSearch
-                loading={!!assignmentOptionsLoadingByEventId[ev.id]}
-                notFoundContent={
-                  assignmentOptionsLoadingByEventId[ev.id] ? <Spin size="small" /> : null
-                }
-                onOpenChange={(open) => {
-                  if (open) {
-                    loadAssignmentOptionsForEvent(ev.id);
-                  }
-                }}
-                filterOption={filterUserOption}
-                onChange={(newIds) => handleAssignmentChange(ev, newIds)}
-                options={getAssignmentSelectOptions(ev.id)}
+      {laedtEvents ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+          <Spin size="large" />
+        </div>
+      ) : events.length === 0 ? (
+        <Empty description="In diesem Zeitraum gibt es keine Messen" />
+      ) : (
+        <Row gutter={[12, 12]}>
+          {events.map((ev) => (
+            // Am Handy eine Karte pro Reihe. Vorher gingen bei xl sechs
+            // Karten in eine Reihe, jede davon mit einem Mehrfach-Select
+            // darin.
+            <Col xs={24} sm={12} lg={8} xxl={6} key={ev.id}>
+              <MesseKarte
+                ev={ev}
+                namenNachId={namenNachId}
+                onEinteilen={oeffneEinteilen}
               />
-            </Card>
-          </Col>
-        ))}
-      </Row>
+            </Col>
+          ))}
+        </Row>
+      )}
+
+      <NeueMesseSheet
+        open={neueMesseOffen}
+        onClose={() => setNeueMesseOffen(false)}
+        locationList={locationList}
+        onSpeichern={speichereMessen}
+      />
+
+      <AssignSheet
+        open={aktivesEvent !== null}
+        onClose={() => setAktivesEvent(null)}
+        event={aktivesEvent}
+        optionen={optionen}
+        laedt={laedtOptionen}
+        zugewiesen={zugewiesenAktiv}
+        onToggle={umschalten}
+      />
     </div>
-  );
+  )
 }

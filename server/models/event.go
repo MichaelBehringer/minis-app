@@ -9,6 +9,10 @@ type Event struct {
 	Location      string `json:"location"`
 	MinimalUser   int    `json:"minimalUser"`
 	IgnoreWeekday bool   `json:"ignoreWeekday"`
+	// Wer sonst zu diesem Termin eingeteilt ist. Fuer die Startseite: nach
+	// "wann bin ich dran" ist das die zweite Frage, und sie war bisher
+	// nirgends zu beantworten.
+	AssignedNames []string `json:"assignedNames"`
 }
 
 type PlannedEvent struct {

@@ -1,104 +1,205 @@
-import { useEffect, useState } from 'react';
-import { Routes, Route, Link, useNavigate } from 'react-router';
-import { Layout, Menu, Dropdown, Space } from 'antd';
-import { HomeOutlined, DatabaseOutlined, AppstoreOutlined, UserOutlined } from '@ant-design/icons';
-import { useMediaQuery } from 'react-responsive';
-import { doGetRequestAuth } from '../helper/RequestHelper';
-import { App as AntdApp } from 'antd';
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { Route, Routes } from 'react-router'
+import {
+  Avatar,
+  Button,
+  Dropdown,
+  Layout,
+  Segmented,
+  Spin,
+  Typography,
+  theme,
+} from 'antd'
+import {
+  LogoutOutlined,
+  SettingOutlined,
+  UserOutlined,
+} from '@ant-design/icons'
+import { doGetRequestAuth } from '../helper/RequestHelper'
+import { myToastError } from '../helper/ToastHelper'
+import { useColorSchemeSetting } from '../colorScheme'
+import useIsMobile from '../hooks/useIsMobile'
+import { istPlaner } from '../navigation'
+import AppNav, { BOTTOM_NAV_HEIGHT, SIDER_WIDTH } from './AppNav'
+import Home from './Home'
+import UserEditModal from './UserEditModal'
 
-import './App.css';
-import Home from './Home';
-import UserEditModal from './UserEditModal';
-import Stammdaten from './Stammdaten';
-import Einteilung from './Einteilung';
+// Die beiden Planungsseiten kommen erst beim Aufruf. Ein Ministrant - die
+// Mehrheit der Nutzer - laedt sie damit nie.
+const Stammdaten = lazy(() => import('./Stammdaten'))
+const Einteilung = lazy(() => import('./Einteilung'))
 
-const { Header, Content } = Layout;
+const { Content, Header } = Layout
 
-function App(props) {
-  const { message } = AntdApp.useApp();
-  const [userId, setUserId] = useState();
-  const [editUserId, setEditUserId] = useState(null);
-  const [roleId, setRoleId] = useState();
-  const [initials, setInitials] = useState();
-  const [userModalOpen, setUserModalOpen] = useState(false);
+function Ladeanzeige({ text = 'Wird geladen' }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        minHeight: '60dvh',
+      }}
+    >
+      <Spin size="large" />
+      <Typography.Text type="secondary">{text}</Typography.Text>
+    </div>
+  )
+}
 
-
-  const navigate = useNavigate();
-  const isCompactMasterData = useMediaQuery({ maxWidth: 430 });
-  const isCompactPlanner = useMediaQuery({ maxWidth: 500 });
-
-  useEffect(() => {
-    doGetRequestAuth('checkToken', props.token).then((res) => {
-      message.info('Hallo ' + res.data.name);
-      setInitials(res.data.name.split(' ').map(word => word[0]).join(''));
-      setUserId(res.data.id);
-      setRoleId(res.data.roleId);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const menuItems = [
-    {
-      key: '1',
-      icon: <HomeOutlined />,
-      label: <Link to="/">Home</Link>,
-      onClick: () => navigate('/'),
-    },
-  ];
-
-  if (roleId === 2 || roleId === 3) {
-    menuItems.push(
-      {
-        key: '2',
-        icon: <DatabaseOutlined />,
-        label: !isCompactMasterData ? <Link to="/stammdaten">Stammdaten</Link> : null,
-        onClick: () => navigate('/stammdaten')
-      },
-      {
-        key: '3',
-        icon: <AppstoreOutlined />,
-        label: !isCompactPlanner ? <Link to="/einteilung">Einteilung</Link> : null,
-        onClick: () => navigate('/einteilung')
-      }
-    );
-  }
-
-  const userMenu = {
-    items: [
-      { key: 'settings', label: 'Einstellungen', onClick: () => setUserModalOpen(true) },
-      { key: 'logout', label: 'Logout', onClick: props.removeToken }
-    ]
-  };
+// Umschalter fuer das Farbschema im Profilmenue.
+function FarbschemaWahl() {
+  const { preference, setPreference } = useColorSchemeSetting()
 
   return (
-    <div>
-      {(userId && roleId) ? (
-        <Layout>
-          <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div style={{ padding: '4px 12px 8px' }}>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        Darstellung
+      </Typography.Text>
+      <Segmented
+        block
+        size="small"
+        style={{ marginTop: 6 }}
+        value={preference}
+        onChange={setPreference}
+        options={[
+          { label: 'Hell', value: 'light' },
+          { label: 'Dunkel', value: 'dark' },
+          { label: 'System', value: 'system' },
+        ]}
+      />
+    </div>
+  )
+}
 
-            <Menu
-              theme="dark"
-              mode="horizontal"
-              defaultSelectedKeys={['1']}
-              items={menuItems.map(item => ({
-                ...item
-              }))}
-              style={{ flex: 1, minWidth: 0 }}
-            />
+function App(props) {
+  const isMobile = useIsMobile()
+  const { token } = theme.useToken()
 
-            <Dropdown menu={userMenu} placement="bottomRight">
-              <Space style={{ color: '#fff', cursor: 'pointer' }}>
-                <UserOutlined />
-                <span>{initials}</span>
-              </Space>
-            </Dropdown>
+  const [userId, setUserId] = useState()
+  const [roleId, setRoleId] = useState()
+  const [name, setName] = useState('')
+  const [editUserId, setEditUserId] = useState(null)
+  const [userSheetOpen, setUserSheetOpen] = useState(false)
 
-          </Header>
+  useEffect(() => {
+    doGetRequestAuth('checkToken', props.token)
+      .then((res) => {
+        setName(res.data.name ?? '')
+        setUserId(res.data.id)
+        setRoleId(res.data.roleId)
+      })
+      .catch(() => {
+        // Vorher gab es hier keinen Fehlerzweig: schlug checkToken fehl, blieb
+        // dauerhaft "Daten werden geladen" stehen, ohne jeden Hinweis.
+        myToastError('Benutzerdaten konnten nicht geladen werden')
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-          <Content style={{ padding: '20px' }}>
+  const initialen = name
+    .split(' ')
+    .filter(Boolean)
+    .map((wort) => wort[0])
+    .join('')
+
+  const profilMenu = {
+    items: [
+      { key: 'schema', label: <FarbschemaWahl />, type: 'group' },
+      { type: 'divider' },
+      {
+        key: 'settings',
+        icon: <SettingOutlined />,
+        label: 'Meine Einstellungen',
+        onClick: () => {
+          setEditUserId(null)
+          setUserSheetOpen(true)
+        },
+      },
+      {
+        key: 'logout',
+        icon: <LogoutOutlined />,
+        label: 'Abmelden',
+        danger: true,
+        onClick: props.removeToken,
+      },
+    ],
+  }
+
+  if (!userId || !roleId) {
+    return <Ladeanzeige text="Anmeldedaten werden geprüft" />
+  }
+
+  const mehrAlsEinMenuepunkt = istPlaner(roleId)
+
+  return (
+    <Layout style={{ minHeight: '100dvh' }}>
+      <AppNav roleId={roleId} />
+
+      <Layout
+        style={{
+          // Platz fuer die feste Seitenleiste am PC.
+          marginInlineStart: isMobile ? 0 : SIDER_WIDTH,
+        }}
+      >
+        <Header
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            paddingInline: 16,
+            background: token.colorBgContainer,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            // Notch der installierten App.
+            paddingTop: 'var(--safe-top)',
+            height: 'auto',
+            minHeight: 56,
+            position: 'sticky',
+            top: 0,
+            zIndex: 50,
+          }}
+        >
+          <Typography.Text
+            strong
+            style={{ fontSize: 17, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            Ministrantenplan
+          </Typography.Text>
+
+          <Dropdown menu={profilMenu} placement="bottomRight" trigger={['click']}>
+            <Button
+              type="text"
+              aria-label={`Profil und Einstellungen von ${name}`}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, paddingInline: 8 }}
+            >
+              <Avatar size={32} style={{ backgroundColor: token.colorPrimary }}>
+                {initialen || <UserOutlined aria-hidden />}
+              </Avatar>
+              {!isMobile && <span>{name}</span>}
+            </Button>
+          </Dropdown>
+        </Header>
+
+        <Content
+          style={{
+            padding: isMobile ? '12px 12px 0' : 24,
+            // Damit der letzte Eintrag nicht unter der Bottom-Navigation
+            // verschwindet.
+            paddingBottom: isMobile && mehrAlsEinMenuepunkt
+              ? `calc(${BOTTOM_NAV_HEIGHT}px + var(--safe-bottom) + 16px)`
+              : `calc(16px + var(--safe-bottom))`,
+          }}
+        >
+          <Suspense fallback={<Ladeanzeige />}>
             <Routes>
-              <Route path="/" element={<Home userId={userId} token={props.token} />} />
-              {(roleId === 2 || roleId === 3) && (
+              <Route
+                path="/"
+                element={<Home userId={userId} token={props.token} />}
+              />
+              {istPlaner(roleId) && (
                 <>
                   <Route
                     path="/stammdaten"
@@ -106,35 +207,53 @@ function App(props) {
                       <Stammdaten
                         token={props.token}
                         onEditUser={(id) => {
-                          setEditUserId(id);
-                          setUserModalOpen(true);
+                          setEditUserId(id)
+                          setUserSheetOpen(true)
                         }}
                       />
                     }
                   />
-
-                  <Route path="/einteilung" element={<Einteilung token={props.token}/>} />
+                  <Route
+                    path="/einteilung"
+                    element={<Einteilung token={props.token} />}
+                  />
                 </>
               )}
+              {/* Ein unbekannter Pfad - etwa eine alte Verknuepfung auf
+                  /einteilung ohne Berechtigung - landet auf der Startseite
+                  statt auf einer leeren Seite. */}
+              <Route
+                path="*"
+                element={<Home userId={userId} token={props.token} />}
+              />
             </Routes>
-          </Content>
-        </Layout>
-      ) : (
-        <div>Daten werden geladen</div>
-      )}
+          </Suspense>
+        </Content>
+      </Layout>
+
       <UserEditModal
         userId={editUserId ?? userId}
-        roleId={roleId}
+        // Ob der Bearbeiter Planer ist, entscheidet ueber die schreibbaren
+        // Felder - nicht die Rolle des bearbeiteten Benutzers.
+        editorRoleId={roleId}
+        eigenesKonto={editUserId === null || editUserId === userId}
         token={props.token}
-        open={userModalOpen}
+        open={userSheetOpen}
         onClose={() => {
-          setUserModalOpen(false)
+          setUserSheetOpen(false)
           setEditUserId(null)
         }}
+        onSaved={() => {
+          // Der eigene Name kann sich geaendert haben.
+          if (editUserId === null || editUserId === userId) {
+            doGetRequestAuth('checkToken', props.token)
+              .then((res) => setName(res.data.name ?? ''))
+              .catch(() => {})
+          }
+        }}
       />
-
-    </div>
-  );
+    </Layout>
+  )
 }
 
-export default App;
+export default App

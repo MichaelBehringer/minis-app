@@ -1,77 +1,82 @@
-import React, { useEffect, useState } from "react";
-import { Button, Spin } from "antd";
-import { myToastSuccess } from "../helper/ToastHelper";
-import { doGetRequestAuth, doPatchRequestAuth } from "../helper/RequestHelper";
-
-import "./UserPreferredWeekdays.css"
-
-const WEEKDAYS = [
-    { key: "MON", label: "Montag" },
-    { key: "TUE", label: "Dienstag" },
-    { key: "WED", label: "Mittwoch" },
-    { key: "THU", label: "Donnerstag" },
-    { key: "FRI", label: "Freitag" },
-    { key: "SAT", label: "Samstag" },
-    { key: "SUN", label: "Sonntag" }
-];
+import { useEffect, useState } from 'react'
+import { Alert, Button, Space, Spin } from 'antd'
+import { CheckOutlined } from '@ant-design/icons'
+import { myToastError, myToastSuccess } from '../helper/ToastHelper'
+import { doGetRequestAuth, doPatchRequestAuth } from '../helper/RequestHelper'
+import { WOCHENTAGE } from '../helper/einteilung'
 
 export default function UserPreferredWeekdays({ userId, token }) {
-    const [loading, setLoading] = useState(true);
-    const [selected, setSelected] = useState([]);
+  const [loading, setLoading] = useState(true)
+  const [gewaehlt, setGewaehlt] = useState([])
 
-    useEffect(() => {
-        async function load() {
-            setLoading(true);
-            const res = await doGetRequestAuth(`user/${userId}/weekday`, token);
-            setSelected(res.data || []);
-            setLoading(false);
-        }
-        load();
-    }, [userId, token]);
+  useEffect(() => {
+    async function laden() {
+      setLoading(true)
+      try {
+        const res = await doGetRequestAuth(`user/${userId}/weekday`, token)
+        setGewaehlt(res.data || [])
+      } catch {
+        myToastError('Wochentage konnten nicht geladen werden')
+      } finally {
+        setLoading(false)
+      }
+    }
+    laden()
+  }, [userId, token])
 
-    const toggle = async (wd) => {
-        const isActive = selected.includes(wd);
+  const umschalten = async (wd) => {
+    const aktiv = gewaehlt.includes(wd)
+    const alt = gewaehlt
+    const neu = aktiv ? gewaehlt.filter((d) => d !== wd) : [...gewaehlt, wd]
 
-        const payload = {
-            weekday: wd,
-            add: !isActive
-        };
+    setGewaehlt(neu)
 
-        // UI sofort aktualisieren
-        const updated = isActive
-            ? selected.filter((d) => d !== wd)
-            : [...selected, wd];
+    try {
+      await doPatchRequestAuth(
+        `user/${userId}/weekday`,
+        { weekday: wd, add: !aktiv },
+        token
+      )
+      myToastSuccess('Änderung gespeichert')
+    } catch {
+      setGewaehlt(alt)
+      myToastError('Änderung konnte nicht gespeichert werden')
+    }
+  }
 
-        setSelected(updated);
+  if (loading) return <Spin />
 
-        await doPatchRequestAuth(`user/${userId}/weekday`, payload, token);
-        myToastSuccess("Änderung gespeichert");
-    };
+  return (
+    <div>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="Wochentage, an denen du eingeteilt werden möchtest."
+      />
 
-
-    if (loading) return <Spin />;
-
-    return (
-        <div>
-            <label><center>Wähle die Wochentage aus, an denen du am liebsten eingeteilt werden möchtest.</center></label>
-            <hr></hr>
-            <div className="weekday-container">
-                {WEEKDAYS.map((d) => (
-                    <React.Fragment key={d.key}>
-                        <Button
-                            className={`weekday-button ${selected.includes(d.key) ? "active" : ""}`}
-                            onClick={() => toggle(d.key)}
-                            block
-                        >
-                            {d.label}
-                        </Button>
-
-                        {/* Trennstrich nach Freitag */}
-                        {d.key === "FRI" && <div className="weekday-divider"></div>}
-                    </React.Fragment>
-                ))}
-            </div>
-        </div>
-    );
-
+      {/* Volle Breite statt einer 140px-Spalte in der Mitte: die Knoepfe sind
+          die einzige Aktion in diesem Reiter und duerfen die Flaeche nutzen.
+          Farben ueber die antd-Typen, damit der Dunkelmodus mitgeht - die
+          vorherige CSS-Datei hatte #1677ff und #d9d9d9 fest verdrahtet. */}
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        {WOCHENTAGE.map((d) => {
+          const aktiv = gewaehlt.includes(d.key)
+          return (
+            <Button
+              key={d.key}
+              block
+              type={aktiv ? 'primary' : 'default'}
+              icon={aktiv ? <CheckOutlined aria-hidden /> : null}
+              onClick={() => umschalten(d.key)}
+              aria-pressed={aktiv}
+              style={{ justifyContent: 'flex-start' }}
+            >
+              {d.label}
+            </Button>
+          )
+        })}
+      </Space>
+    </div>
+  )
 }
