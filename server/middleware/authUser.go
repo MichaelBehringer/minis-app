@@ -1,7 +1,8 @@
 package middleware
 
 import (
-	"fmt"
+	"strconv"
+
 	. "minisAPI/controller"
 	. "minisAPI/models"
 	"net/http"
@@ -29,20 +30,49 @@ func AuthUser() gin.HandlerFunc {
 	}
 }
 
+// claimZahl liest einen Zahlenwert aus den Claims.
+//
+// JSON kennt nur einen Zahlentyp, deshalb kommt jede Zahl als float64 an. Fehlt
+// der Wert oder hat er einen anderen Typ, war das vorher ein Panic mitten in der
+// Middleware - ein Token ohne roleId hat den Server also mit 500 antworten
+// lassen statt mit 403.
+func claimZahl(claims jwt.MapClaims, name string) (int, bool) {
+	v, ok := claims[name].(float64)
+	if !ok {
+		return 0, false
+	}
+	return int(v), true
+}
+
+// claimsAus holt die von AuthUser gesetzten Claims aus dem Context. Der zweite
+// Rueckgabewert ist false, wenn sie fehlen oder nicht den erwarteten Typ haben.
+func claimsAus(c *gin.Context) (jwt.MapClaims, bool) {
+	val, exists := c.Get("claims")
+	if !exists {
+		return nil, false
+	}
+	claims, ok := val.(jwt.MapClaims)
+	return claims, ok
+}
+
+// AllowSelfOrMinRole laesst den Zugriff durch, wenn die angefragte userId die
+// eigene ist oder die Rolle mindestens minRole erreicht.
 func AllowSelfOrMinRole(minRole int) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		claimsVal, exists := c.Get("claims")
-		if !exists {
+		claims, ok := claimsAus(c)
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 
-		claims := claimsVal.(jwt.MapClaims)
-		role := int(claims["roleId"].(float64))
-		tokenUserId := fmt.Sprintf("%.0f", claims["userId"].(float64))
-		paramUserId := c.Param("userId")
+		role, roleOk := claimZahl(claims, "roleId")
+		userId, userOk := claimZahl(claims, "userId")
+		if !roleOk || !userOk {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 
-		if tokenUserId != paramUserId && role < minRole {
+		if strconv.Itoa(userId) != c.Param("userId") && role < minRole {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
 			return
 		}
@@ -51,16 +81,20 @@ func AllowSelfOrMinRole(minRole int) gin.HandlerFunc {
 	}
 }
 
+// AllowMinRole laesst den Zugriff nur ab der Rolle minRole durch.
 func AllowMinRole(minRole int) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		claimsVal, exists := c.Get("claims")
-		if !exists {
+		claims, ok := claimsAus(c)
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 
-		claims := claimsVal.(jwt.MapClaims)
-		role := int(claims["roleId"].(float64))
+		role, roleOk := claimZahl(claims, "roleId")
+		if !roleOk {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 
 		if role < minRole {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden"})

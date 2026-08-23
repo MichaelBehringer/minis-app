@@ -10,8 +10,14 @@ import (
 var db *sql.DB
 var err error
 
+// Der Zugang zur Datenbank.
+//
+// Stand bis hierher fest im Quellcode und damit dauerhaft in der Git-Historie.
+// Der Default ist unveraendert derselbe Wert, damit sich lokal nichts aendert;
+// auf der Produktivmaschine wird er ueber MINIS_DB_DSN gesetzt und das Passwort
+// muss gewechselt werden.
 func InitDB() {
-	db, err = sql.Open("mysql", "myuser:gnidmewff112@tcp(130.61.10.8:3306)/minis")
+	db, err = sql.Open("mysql", Env("MINIS_DB_DSN", "myuser:gnidmewff112@tcp(130.61.10.8:3306)/minis"))
 	if err != nil {
 		panic(err.Error())
 	}

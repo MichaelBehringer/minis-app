@@ -1,0 +1,18 @@
+# Zugangsdaten. Vorlagen sind .env.example und liegen im Repository.
+.env
+server/.env
+ui/.env
+ui/.env.local
+
+# Abhaengigkeiten und Bauergebnisse
+node_modules/
+ui/dist/
+ui/build/
+
+# Zertifikate
+certs/*.pem
+
+# Werkzeuge
+__pycache__/
+.DS_Store
+*.log

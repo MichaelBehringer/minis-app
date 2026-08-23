@@ -1,17 +1,24 @@
 package main
 
 import (
+	"errors"
+	"log"
 	. "minisAPI/controller"
 	. "minisAPI/middleware"
 	. "minisAPI/models"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Fehlt die Datei, bleibt es bei den Umgebungsvariablen des Prozesses.
+	// Im Container werden sie ueber docker-compose gesetzt, lokal ueber
+	// server/.env - siehe .env.example.
+	_ = godotenv.Load()
+
 	InitDB()
 	defer CloseDB()
 
@@ -27,47 +34,72 @@ func main() {
 	auth.Use(AuthUser())
 	auth.GET("/checkToken", checkToken)
 
-	auth.GET("/autoAssign", autoAssign)
+	// Der PDF-Plan enthaelt die Vor- und Nachnamen aller eingeteilten
+	// Ministranten. Er hing bisher an router statt an auth und war damit ohne
+	// Token abrufbar, mit frei waehlbarem Zeitraum ueber ?from=&to=.
+	auth.GET("/pdf/events", AllowMinRole(2), GetEventsPDF)
 
-	router.GET("/pdf/events", GetEventsPDF)
-
-	auth.GET("/events/:userId", getEventsForUser)
-	auth.GET("/events", getEventsByDateRange)
+	// Lesen und Schreiben sind hier gleich zu behandeln: die PATCH-Routen waren
+	// durch AllowSelfOrMinRole geschuetzt, die passenden GETs nicht. Damit
+	// konnte jeder Angemeldete die Sperrtage, Wochentage und Wunschpartner
+	// aller anderen lesen.
+	auth.GET("/events/:userId", AllowSelfOrMinRole(2), getEventsForUser)
+	auth.GET("/events", AllowMinRole(2), getEventsByDateRange)
 	auth.PATCH("/events/:eventId/assign/add", AllowMinRole(2), addUserToEvent)
 	auth.PATCH("/events/:eventId/assign/remove", AllowMinRole(2), removeUserFromEvent)
 	auth.PUT("/event", AllowMinRole(2), putEvent)
 
 	auth.GET("/location", getLocations)
 
+	// Bleibt fuer alle Angemeldeten lesbar: die Liste dient der Auswahl der
+	// Wunschpartner, die jeder fuer sich selbst pflegen darf. Sie enthaelt nur
+	// Id und Namen der aktiven Ministranten.
 	auth.GET("/userHead", getAllUserHead)
-	auth.GET("/user", getAllUser)
-	auth.GET("/user/:userId", getUser)
+
+	auth.GET("/user", AllowMinRole(2), getAllUser)
+	auth.GET("/user/:userId", AllowSelfOrMinRole(2), getUser)
 	auth.PATCH("/user/:userId", AllowSelfOrMinRole(2), updateUser)
 	auth.PATCH("/user/:userId/password", AllowSelfOrMinRole(2), updateUserPassword)
-	auth.GET("/user/:userId/ban", getUserBanDates)
+	auth.GET("/user/:userId/ban", AllowSelfOrMinRole(2), getUserBanDates)
 	auth.PATCH("/user/:userId/ban", AllowSelfOrMinRole(2), updateUserBanDates)
-	auth.GET("/user/:userId/weekday", getUserWeekdays)
+	auth.GET("/user/:userId/weekday", AllowSelfOrMinRole(2), getUserWeekdays)
 	auth.PATCH("/user/:userId/weekday", AllowSelfOrMinRole(2), updateUserWeekday)
 	auth.PATCH("/user/:userId/preferred", AllowSelfOrMinRole(2), updateUserPreferred)
-	auth.GET("/user/:userId/preferred", getUserPreferred)
+	auth.GET("/user/:userId/preferred", AllowSelfOrMinRole(2), getUserPreferred)
 	auth.GET("/event/:eventId/assignment-options", AllowMinRole(2), getEventAssignmentOptions)
 
-	router.Run("localhost:8080")
+	// Feste Bindung an localhost liess sich im Container nicht erreichen und
+	// musste vor jedem Deployen von Hand geaendert werden.
+	adresse := Env("MINIS_LISTEN_ADDR", "localhost:8080")
+	log.Printf("Server lauscht auf %s", adresse)
+	if err := router.Run(adresse); err != nil {
+		log.Fatalf("Server konnte nicht starten: %v", err)
+	}
 }
 
 func login(c *gin.Context) {
 	var login Login
-	c.BindJSON(&login)
-	retJWT := DoLogin(login, c)
-	c.IndentedJSON(http.StatusOK, retJWT)
-}
+	if err := c.ShouldBindJSON(&login); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ungueltige Anfrage"})
+		return
+	}
 
-func autoAssign(c *gin.Context) {
+	token, err := DoLogin(login)
+	if errors.Is(err, ErrAnmeldungFehlgeschlagen) {
+		// Absichtlich ohne Angabe, ob der Benutzername oder das Passwort nicht
+		// gestimmt hat - sonst laesst sich damit pruefen, welche Konten es gibt.
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Benutzername oder Passwort ist falsch"})
+		return
+	}
+	if err != nil {
+		// Technischer Fehler, etwa eine nicht erreichbare Datenbank. Der Grund
+		// gehoert ins Log und nicht in die Antwort.
+		log.Printf("Anmeldung fehlgeschlagen (technisch): %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Anmeldung derzeit nicht moeglich"})
+		return
+	}
 
-	eventId := c.Query("eventId")
-	i, _ := strconv.Atoi(eventId)
-	AssignUsersToEvent(i, GetDB())
-	c.IndentedJSON(http.StatusOK, "ok")
+	c.IndentedJSON(http.StatusOK, token)
 }
 
 func checkToken(c *gin.Context) {
