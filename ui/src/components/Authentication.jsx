@@ -120,17 +120,6 @@ function Authentication(props) {
             <Checkbox>Angemeldet bleiben</Checkbox>
           </Form.Item>
 
-          {/* Das Haekchen setzt jetzt die Gueltigkeitsdauer am Server, nicht
-              nur den Speicherort im Browser. Der Hinweis sagt, was das
-              bedeutet - ohne ihn erwartet man nach einem Jahr eine
-              Abmeldung. */}
-          <Text
-            type="secondary"
-            style={{ display: 'block', fontSize: 12, marginTop: -12, marginBottom: 20 }}
-          >
-            Die Anmeldung bleibt bestehen, solange du die App benutzt.
-          </Text>
-
           <Button
             type="primary"
             htmlType="submit"
