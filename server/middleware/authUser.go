@@ -64,6 +64,19 @@ func claimsAus(c *gin.Context) (jwt.MapClaims, bool) {
 	return claims, ok
 }
 
+// ClaimZahl liest einen Zahlenwert aus den Claims, die AuthUser gesetzt hat.
+//
+// Exportiert, weil nicht nur die Middleware die eigene Rolle braucht: ob jemand
+// eine Rolle vergeben darf, haengt von seiner eigenen ab, und das entscheidet
+// der Handler.
+func ClaimZahl(c *gin.Context, name string) (int, bool) {
+	claims, ok := claimsAus(c)
+	if !ok {
+		return 0, false
+	}
+	return claimZahl(claims, name)
+}
+
 // AllowSelfOrMinRole laesst den Zugriff durch, wenn die angefragte userId die
 // eigene ist oder die Rolle mindestens minRole erreicht.
 func AllowSelfOrMinRole(minRole int) gin.HandlerFunc {

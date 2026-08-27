@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log"
 	. "minisAPI/controller"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -72,6 +74,9 @@ func main() {
 	auth.GET("/userHead", getAllUserHead)
 
 	auth.GET("/user", AllowMinRole(2), getAllUser)
+	// Anlegen war bisher nur in der Datenbank moeglich - es gab weder Route
+	// noch INSERT im Code.
+	auth.POST("/user", AllowMinRole(2), createUser)
 	auth.GET("/user/:userId", AllowSelfOrMinRole(2), getUser)
 	auth.PATCH("/user/:userId", AllowSelfOrMinRole(2), updateUser)
 	auth.PATCH("/user/:userId/password", AllowSelfOrMinRole(2), updateUserPassword)
@@ -343,12 +348,92 @@ func updateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
+
+	eigeneRolle, okRolle := ClaimZahl(c, "roleId")
+	eigeneId, okId := ClaimZahl(c, "userId")
+	if !okRolle || !okId {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Der gespeicherte Stand entscheidet, ob ueberhaupt eine Aenderung
+	// vorliegt. Die Maske schickt immer alle Felder, auch die unveraenderten.
+	vorher, err := GetUser(userId)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Diesen Ministranten gibt es nicht"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Benutzer laden", err)
+		return
+	}
+
+	if eigeneRolle < 2 {
+		// Rolle, Aktiv-Schalter und Weihrauch sind in der Maske gesperrt. Ohne
+		// diese Zeilen gilt das nur dort: ein Aufruf per curl konnte damit die
+		// eigene Rolle setzen oder sich als Weihrauchtraeger eintragen.
+		payload.RoleId = vorher.RoleId
+		payload.Active = vorher.Active
+		payload.Incense = vorher.Incense
+	} else if err := PruefeRollenwechsel(eigeneRolle, eigeneId, vorher.Id, vorher.RoleId, payload.RoleId); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
 	if err := UpdateUser(userId, payload); err != nil {
 		serverFehler(c, "Benutzer speichern", err)
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "updated"})
+}
+
+func createUser(c *gin.Context) {
+	var payload NeuerBenutzer
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	payload.Firstname = strings.TrimSpace(payload.Firstname)
+	payload.Lastname = strings.TrimSpace(payload.Lastname)
+	payload.Username = strings.TrimSpace(payload.Username)
+
+	if payload.Firstname == "" || payload.Lastname == "" || payload.Username == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Vorname, Nachname und Benutzername sind nötig"})
+		return
+	}
+	if payload.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Passwort darf nicht leer sein"})
+		return
+	}
+
+	eigeneRolle, ok := ClaimZahl(c, "roleId")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	// Ohne Angabe der niedrigste Fall: ein Ministrant.
+	if payload.RoleId == 0 {
+		payload.RoleId = 1
+	}
+	if err := PruefeRollenvergabe(eigeneRolle, payload.RoleId); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	id, err := CreateUser(payload)
+	if errors.Is(err, ErrBenutzernameVergeben) {
+		// 409, nicht 500: die Anfrage war in Ordnung, der Name ist belegt.
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Benutzer anlegen", err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"id": id})
 }
 
 func updateUserPassword(c *gin.Context) {

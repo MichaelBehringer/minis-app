@@ -127,6 +127,8 @@ export default function UserEditModal({
                     onOpenPassword={() => setPasswordModalOpen(true)}
                     rollen={rollen}
                     istPlaner={istPlaner}
+                    eigenesKonto={eigenesKonto}
+                    editorRoleId={editorRoleId}
                     speichert={speichert}
                   />
                 ),

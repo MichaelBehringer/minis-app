@@ -16,6 +16,20 @@ type User struct {
 	Incense   int    `json:"incense"`
 }
 
+// NeuerBenutzer ist die Nutzlast fuer POST /user.
+//
+// Wie User, aber mit Passwort. Bewusst ein eigener Typ: das Passwort darf in
+// keiner Antwort auftauchen, und User wird genau dafuer verwendet.
+type NeuerBenutzer struct {
+	Firstname string `json:"firstname"`
+	Lastname  string `json:"lastname"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	RoleId    int    `json:"roleId"`
+	Active    int    `json:"active"`
+	Incense   int    `json:"incense"`
+}
+
 type Role struct {
 	Id   int    `json:"id"`
 	Name string `json:"name"`

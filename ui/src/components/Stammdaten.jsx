@@ -11,10 +11,11 @@ import {
   Tag,
   Typography,
 } from 'antd'
-import { EditOutlined } from '@ant-design/icons'
+import { EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { doGetRequestAuth } from '../helper/RequestHelper'
 import { myToastError } from '../helper/ToastHelper'
 import useIsMobile from '../hooks/useIsMobile'
+import NeuerMiniSheet from './NeuerMiniSheet'
 
 // Namen der Rollen kommen aus der Datenbank. Vorher stand in der Tabelle die
 // rohe Zahl, ohne dass irgendwo stand, was sie bedeutet.
@@ -57,13 +58,17 @@ function MiniKarte({ user, rollen, onEditUser }) {
   )
 }
 
-export default function Stammdaten({ token, onEditUser }) {
+export default function Stammdaten({ token, onEditUser, editorRoleId, aktualisierung }) {
   const isMobile = useIsMobile()
   const [users, setUsers] = useState([])
   const [rollen, setRollen] = useState([])
   const [loading, setLoading] = useState(true)
   const [suche, setSuche] = useState('')
   const [filter, setFilter] = useState('aktiv')
+  const [neuOffen, setNeuOffen] = useState(false)
+  // Zaehler statt eines Flags: jede Aenderung erhoeht ihn und loest damit ein
+  // Nachladen aus, auch mehrmals hintereinander.
+  const [eigenesNachladen, setEigenesNachladen] = useState(0)
 
   useEffect(() => {
     async function laden() {
@@ -82,7 +87,10 @@ export default function Stammdaten({ token, onEditUser }) {
       }
     }
     laden()
-  }, [token])
+    // aktualisierung kommt von aussen: nach dem Speichern im Bearbeiten-Sheet,
+    // das App verwaltet. Ohne das zeigte die Liste nach einer Aenderung
+    // weiterhin den alten Stand.
+  }, [token, aktualisierung, eigenesNachladen])
 
   const gefiltert = useMemo(() => {
     const s = suche.trim().toLowerCase()
@@ -147,6 +155,14 @@ export default function Stammdaten({ token, onEditUser }) {
   return (
     <div>
       <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 12 }}>
+        <Button
+          type="primary"
+          block
+          icon={<PlusOutlined aria-hidden />}
+          onClick={() => setNeuOffen(true)}
+        >
+          Ministrant anlegen
+        </Button>
         <Input.Search
           placeholder="Name oder Benutzername suchen"
           allowClear
@@ -187,6 +203,18 @@ export default function Stammdaten({ token, onEditUser }) {
           size="middle"
         />
       )}
+
+      <NeuerMiniSheet
+        open={neuOffen}
+        onClose={() => setNeuOffen(false)}
+        onCreated={() => {
+          setNeuOffen(false)
+          setEigenesNachladen((n) => n + 1)
+        }}
+        token={token}
+        rollen={rollen}
+        editorRoleId={editorRoleId}
+      />
     </div>
   )
 }

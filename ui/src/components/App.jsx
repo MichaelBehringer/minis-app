@@ -112,6 +112,9 @@ function App(props) {
   const [name, setName] = useState('')
   const [editUserId, setEditUserId] = useState(null)
   const [userSheetOpen, setUserSheetOpen] = useState(false)
+  // Wird nach jedem Speichern im Bearbeiten-Sheet erhoeht. Die Stammdatenliste
+  // laedt daraufhin neu - vorher zeigte sie den Stand von vor der Aenderung.
+  const [stammdatenStand, setStammdatenStand] = useState(0)
 
   useEffect(() => {
     doGetRequestAuth('checkToken', props.token)
@@ -262,6 +265,8 @@ function App(props) {
                     element={
                       <Stammdaten
                         token={props.token}
+                        editorRoleId={roleId}
+                        aktualisierung={stammdatenStand}
                         onEditUser={(id) => {
                           setEditUserId(id)
                           setUserSheetOpen(true)
@@ -302,6 +307,7 @@ function App(props) {
           setEditUserId(null)
         }}
         onSaved={() => {
+          setStammdatenStand((n) => n + 1)
           // Der eigene Name kann sich geaendert haben.
           if (editUserId === null || editUserId === userId) {
             doGetRequestAuth('checkToken', props.token)

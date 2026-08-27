@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"errors"
+
 	. "minisAPI/models"
 )
 
@@ -69,10 +71,82 @@ func GetRoles() ([]Role, error) {
 	return roles, results.Err()
 }
 
+// UpdateUser speichert die Stammdaten eines Benutzers.
+//
+// role_id ist hier neu. Vorher stand die Spalte in keinem INSERT und in keinem
+// UPDATE des ganzen Codes: die Auswahlliste "Rolle" in der Maske wurde
+// mitgeschickt, still verworfen, und der Nutzer bekam eine Erfolgsmeldung. Wer
+// die Rolle vergeben darf, entscheidet der Handler - dort liegen die Claims.
 func UpdateUser(userId string, user User) error {
-	_, err := ExecuteDDL("UPDATE user SET firstname=?, lastname=?, active=?, incense=? WHERE id=?",
-		user.Firstname, user.Lastname, user.Active, user.Incense, userId)
+	_, err := ExecuteDDL(
+		"UPDATE user SET firstname=?, lastname=?, role_id=?, active=?, incense=? WHERE id=?",
+		user.Firstname, user.Lastname, user.RoleId, user.Active, user.Incense, userId,
+	)
 	return err
+}
+
+var (
+	// ErrEigeneRolle: die eigene Rolle darf niemand aendern - sonst macht sich
+	// ein Ministrantenrat selbst zum Admin.
+	ErrEigeneRolle = errors.New("Die eigene Rolle kann nicht geändert werden")
+	// ErrRolleNichtErlaubt: keine hoehere Rolle als die eigene, und keine
+	// Rolle unterhalb von 1.
+	ErrRolleNichtErlaubt = errors.New("Diese Rolle kannst du nicht vergeben")
+)
+
+// PruefeRollenvergabe entscheidet, welche Rolle jemand vergeben darf.
+//
+// Eigene Funktion, weil das die sicherheitsrelevante Regel ist: sie gilt beim
+// Anlegen und beim Bearbeiten gleich und ist ohne Datenbank pruefbar.
+func PruefeRollenvergabe(eigeneRolle int, rolle int) error {
+	if rolle < 1 || rolle > eigeneRolle {
+		return ErrRolleNichtErlaubt
+	}
+	return nil
+}
+
+// PruefeRollenwechsel entscheidet, ob ein Rollenwechsel erlaubt ist.
+//
+// Bleibt die Rolle gleich, ist nichts zu pruefen - die Maske schickt immer alle
+// Felder, auch die unveraenderten.
+func PruefeRollenwechsel(eigeneRolle int, eigeneId int, zielId int, alteRolle int, neueRolle int) error {
+	if neueRolle == alteRolle {
+		return nil
+	}
+	if eigeneId == zielId {
+		return ErrEigeneRolle
+	}
+	return PruefeRollenvergabe(eigeneRolle, neueRolle)
+}
+
+// ErrBenutzernameVergeben meldet einen bereits vorhandenen Benutzernamen.
+//
+// Getrennt von technischen Fehlern, weil es kein Serverfehler ist: die Spalte
+// hat einen UNIQUE-Index, und der Aufrufer soll "schon vergeben" melden statt
+// "Fehler beim Anlegen".
+var ErrBenutzernameVergeben = errors.New("Dieser Benutzername ist schon vergeben")
+
+// CreateUser legt einen Benutzer an und gibt seine Id zurueck.
+//
+// Bisher gab es dafuer gar keinen Weg: kein INSERT INTO user im ganzen Code und
+// keine Route. Jeder neue Ministrant entstand von Hand in der Datenbank.
+func CreateUser(neu NeuerBenutzer) (int, error) {
+	res, err := ExecuteDDL(
+		"INSERT INTO user (firstname, lastname, username, password, role_id, active, incense) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		neu.Firstname, neu.Lastname, neu.Username, neu.Password, neu.RoleId, neu.Active, neu.Incense,
+	)
+	if istDoppelterEintrag(err) {
+		return 0, ErrBenutzernameVergeben
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return int(id), nil
 }
 
 func UpdatePassword(userId string, password string) error {
