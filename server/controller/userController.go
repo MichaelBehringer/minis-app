@@ -24,8 +24,24 @@ func GetAllUserHead() ([]UserSmall, error) {
 	return users, results.Err()
 }
 
+// Die Kontaktspalten sind NULL-bar. IFNULL statt sql.NullString an jeder
+// Fundstelle: der leere String ist hier genau die richtige Bedeutung ("nicht
+// hinterlegt"), und die Modelle bleiben einfach.
+const benutzerSpalten = `id, firstname, lastname, username, role_id, active, incense,
+	IFNULL(phone, ''), IFNULL(email, ''), IFNULL(note, '')`
+
+func scanBenutzer(scan func(...any) error) (User, error) {
+	var user User
+	err := scan(
+		&user.Id, &user.Firstname, &user.Lastname, &user.Username,
+		&user.RoleId, &user.Active, &user.Incense,
+		&user.Phone, &user.Email, &user.Note,
+	)
+	return user, err
+}
+
 func GetAllUser() ([]User, error) {
-	results, err := ExecuteSQL("SELECT id, firstname, lastname, username, role_id, active, incense FROM user ORDER BY active DESC, lastname, firstname")
+	results, err := ExecuteSQL("SELECT " + benutzerSpalten + " FROM user ORDER BY active DESC, lastname, firstname")
 	if err != nil {
 		return nil, err
 	}
@@ -33,8 +49,8 @@ func GetAllUser() ([]User, error) {
 
 	users := []User{}
 	for results.Next() {
-		var user User
-		if err := results.Scan(&user.Id, &user.Firstname, &user.Lastname, &user.Username, &user.RoleId, &user.Active, &user.Incense); err != nil {
+		user, err := scanBenutzer(results.Scan)
+		if err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -43,10 +59,9 @@ func GetAllUser() ([]User, error) {
 }
 
 func GetUser(userId string) (User, error) {
-	var user User
-	err := ExecuteSQLRow("SELECT id, firstname, lastname, username, role_id, active, incense FROM user WHERE id = ?", userId).
-		Scan(&user.Id, &user.Firstname, &user.Lastname, &user.Username, &user.RoleId, &user.Active, &user.Incense)
-	return user, err
+	return scanBenutzer(
+		ExecuteSQLRow("SELECT "+benutzerSpalten+" FROM user WHERE id = ?", userId).Scan,
+	)
 }
 
 // GetRoles liefert die Rollen aus der Datenbank.
@@ -78,9 +93,16 @@ func GetRoles() ([]Role, error) {
 // mitgeschickt, still verworfen, und der Nutzer bekam eine Erfolgsmeldung. Wer
 // die Rolle vergeben darf, entscheidet der Handler - dort liegen die Claims.
 func UpdateUser(userId string, user User) error {
-	_, err := ExecuteDDL(
-		"UPDATE user SET firstname=?, lastname=?, role_id=?, active=?, incense=? WHERE id=?",
-		user.Firstname, user.Lastname, user.RoleId, user.Active, user.Incense, userId,
+	// NULLIF: ein geleertes Feld wird NULL und nicht der leere String - damit
+	// bleibt "nicht hinterlegt" in der Datenbank eindeutig.
+	_, err := ExecuteDDL(`
+		UPDATE user
+		SET firstname=?, lastname=?, role_id=?, active=?, incense=?,
+			phone=NULLIF(?, ''), email=NULLIF(?, ''), note=NULLIF(?, '')
+		WHERE id=?`,
+		user.Firstname, user.Lastname, user.RoleId, user.Active, user.Incense,
+		user.Phone, user.Email, user.Note,
+		userId,
 	)
 	return err
 }
@@ -131,9 +153,11 @@ var ErrBenutzernameVergeben = errors.New("Dieser Benutzername ist schon vergeben
 // Bisher gab es dafuer gar keinen Weg: kein INSERT INTO user im ganzen Code und
 // keine Route. Jeder neue Ministrant entstand von Hand in der Datenbank.
 func CreateUser(neu NeuerBenutzer) (int, error) {
-	res, err := ExecuteDDL(
-		"INSERT INTO user (firstname, lastname, username, password, role_id, active, incense) VALUES (?, ?, ?, ?, ?, ?, ?)",
+	res, err := ExecuteDDL(`
+		INSERT INTO user (firstname, lastname, username, password, role_id, active, incense, phone, email)
+		VALUES (?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
 		neu.Firstname, neu.Lastname, neu.Username, neu.Password, neu.RoleId, neu.Active, neu.Incense,
+		neu.Phone, neu.Email,
 	)
 	if istDoppelterEintrag(err) {
 		return 0, ErrBenutzernameVergeben

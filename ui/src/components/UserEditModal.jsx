@@ -56,6 +56,9 @@ export default function UserEditModal({
           roleId: res.data.roleId,
           active: res.data.active === 1,
           incense: res.data.incense === 1,
+          phone: res.data.phone ?? '',
+          email: res.data.email ?? '',
+          note: res.data.note ?? '',
         })
       } catch {
         myToastError('Daten konnten nicht geladen werden')
@@ -87,6 +90,11 @@ export default function UserEditModal({
           roleId: werte.roleId,
           active: werte.active ? 1 : 0,
           incense: werte.incense ? 1 : 0,
+          phone: werte.phone ?? '',
+          email: werte.email ?? '',
+          // Bei einem Ministranten gibt es das Feld nicht - der Server behaelt
+          // dann den gespeicherten Stand.
+          note: werte.note ?? '',
         },
         token
       )

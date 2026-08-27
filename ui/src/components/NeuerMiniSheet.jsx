@@ -59,6 +59,8 @@ export default function NeuerMiniSheet({
           roleId: werte.roleId,
           active: werte.active ? 1 : 0,
           incense: werte.incense ? 1 : 0,
+          phone: werte.phone ?? '',
+          email: werte.email ?? '',
         },
         token
       )
@@ -119,6 +121,18 @@ export default function NeuerMiniSheet({
           rules={[{ required: true, message: 'Bitte Passwort angeben' }]}
         >
           <Input.Password autoComplete="new-password" />
+        </Form.Item>
+
+        <Form.Item label="Telefon" name="phone" extra="In der Regel die Nummer der Eltern">
+          <Input type="tel" autoComplete="tel" />
+        </Form.Item>
+
+        <Form.Item
+          label="E-Mail"
+          name="email"
+          rules={[{ type: 'email', message: 'Das sieht nicht wie eine E-Mail-Adresse aus' }]}
+        >
+          <Input type="email" autoCapitalize="none" autoCorrect="off" />
         </Form.Item>
 
         <Form.Item label="Rolle" name="roleId">

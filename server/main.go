@@ -334,10 +334,21 @@ func getAllUser(c *gin.Context) {
 
 func getUser(c *gin.Context) {
 	user, err := GetUser(c.Param("userId"))
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Diesen Ministranten gibt es nicht"})
+		return
+	}
 	if err != nil {
 		serverFehler(c, "Benutzer laden", err)
 		return
 	}
+
+	// Die Bemerkung ist eine Notiz des Ministrantenrats. Ein Ministrant darf
+	// seine eigenen Daten lesen (AllowSelfOrMinRole) - diese Zeile aber nicht.
+	if rolle, ok := ClaimZahl(c, "roleId"); !ok || rolle < 2 {
+		user.Note = ""
+	}
+
 	c.IndentedJSON(http.StatusOK, user)
 }
 
@@ -375,6 +386,10 @@ func updateUser(c *gin.Context) {
 		payload.RoleId = vorher.RoleId
 		payload.Active = vorher.Active
 		payload.Incense = vorher.Incense
+		// Die Bemerkung gehoert dem Ministrantenrat. Sie wird einem Ministranten
+		// nicht ausgeliefert (siehe getUser) und darf von ihm deshalb auch nicht
+		// geschrieben werden - ein leeres Feld wuerde sie sonst loeschen.
+		payload.Note = vorher.Note
 	} else if err := PruefeRollenwechsel(eigeneRolle, eigeneId, vorher.Id, vorher.RoleId, payload.RoleId); err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return

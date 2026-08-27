@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS `user` (
   `role_id`   int(11) DEFAULT NULL,
   `active`    int(11) DEFAULT 1 COMMENT '0 inactive; 1 active',
   `incense`   int(11) DEFAULT NULL COMMENT '0 cannot incense; 1 can incense',
+  -- Kontaktdaten und eine Bemerkung. Optional, und bewusst nicht Teil von
+  -- /userHead oder des PDF-Plans. `note` ist nur ab Rolle 2 lesbar.
+  `phone`     varchar(50)  COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Telefon, in der Regel der Eltern',
+  `email`     varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `note`      text         COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   -- Die Kollation ist ci, dieser Index deckt also auch Gross- und
   -- Kleinschreibung ab. Die Anmeldeabfrage darf deshalb kein UPPER() um die

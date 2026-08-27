@@ -197,10 +197,21 @@ Anweisungen sind einmalig anzuwenden:
 mariadb minis < server/migrations/001_unique_indizes.sql
 ```
 
+```bash
+mariadb minis < server/migrations/002_kontaktdaten.sql
+```
+
 `001` legt UNIQUE-Indizes auf `ban`, `user_weekday` und `preference_together`.
 Die Anwendung verlässt sich darauf: sie fängt den MySQL-Fehler 1062 ab und
 behandelt einen doppelten Eintrag als „schon erledigt" statt als Fehler. Ohne
 die Indizes gibt es diesen Fehler nicht und es entstehen stille Duplikate.
+
+`002` ergänzt `user` um `phone`, `email` und `note`. Alle drei sind optional.
+Telefon und E-Mail darf jeder für sich selbst pflegen; die Bemerkung ist eine
+Notiz des Ministrantenrats und wird einem Ministranten weder ausgeliefert noch
+von ihm angenommen. In `/userHead` — die Liste, die jeder Angemeldete für die
+Wunschpartner-Auswahl lesen darf — und im PDF-Plan erscheinen die Spalten
+nicht.
 
 ## Entwicklung
 

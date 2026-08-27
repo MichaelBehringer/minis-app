@@ -87,9 +87,41 @@ describe('NeuerMiniSheet', () => {
         roleId: 1,
         active: 1,
         incense: 0,
+        phone: '',
+        email: '',
       },
       't'
     )
+  })
+
+  it('schickt Telefon und E-Mail mit', async () => {
+    const nutzer = userEvent.setup()
+    zeige()
+
+    await ausfuellen(nutzer)
+    await nutzer.type(screen.getByLabelText('Telefon'), '09092 12345')
+    await nutzer.type(screen.getByLabelText('E-Mail'), 'eltern@example.org')
+    await nutzer.click(screen.getByRole('button', { name: 'Anlegen' }))
+
+    await waitFor(() => expect(doPostRequestAuth).toHaveBeenCalledOnce())
+    expect(doPostRequestAuth.mock.calls[0][1]).toMatchObject({
+      phone: '09092 12345',
+      email: 'eltern@example.org',
+    })
+  })
+
+  it('weist eine unbrauchbare E-Mail-Adresse ab', async () => {
+    const nutzer = userEvent.setup()
+    zeige()
+
+    await ausfuellen(nutzer)
+    await nutzer.type(screen.getByLabelText('E-Mail'), 'keine-adresse')
+    await nutzer.click(screen.getByRole('button', { name: 'Anlegen' }))
+
+    expect(doPostRequestAuth).not.toHaveBeenCalled()
+    expect(
+      await screen.findByText('Das sieht nicht wie eine E-Mail-Adresse aus')
+    ).toBeInTheDocument()
   })
 
   it('legt ohne Pflichtangaben nichts an', async () => {

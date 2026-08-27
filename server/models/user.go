@@ -14,6 +14,12 @@ type User struct {
 	RoleId    int    `json:"roleId"`
 	Active    int    `json:"active"`
 	Incense   int    `json:"incense"`
+	// Kontaktdaten. Optional; in der Datenbank NULL, hier der leere String.
+	Phone string `json:"phone"`
+	Email string `json:"email"`
+	// Bemerkung des Ministrantenrats. Nur ab Rolle 2 - der Handler leert das
+	// Feld, wenn ein Ministrant seine eigenen Daten abruft.
+	Note string `json:"note"`
 }
 
 // NeuerBenutzer ist die Nutzlast fuer POST /user.
@@ -28,6 +34,8 @@ type NeuerBenutzer struct {
 	RoleId    int    `json:"roleId"`
 	Active    int    `json:"active"`
 	Incense   int    `json:"incense"`
+	Phone     string `json:"phone"`
+	Email     string `json:"email"`
 }
 
 type Role struct {

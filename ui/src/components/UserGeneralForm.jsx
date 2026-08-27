@@ -33,6 +33,30 @@ export default function UserGeneralForm({
         <Input disabled />
       </Form.Item>
 
+      {/* Kontaktdaten. Bis hierher standen in der Tabelle user nur Namen,
+          Zugang, Rolle, Aktiv und Weihrauch - fuer jeden Anruf brauchte der
+          Ministrantenrat eine zweite Liste ausserhalb der Anwendung. */}
+      <Form.Item
+        label="Telefon"
+        name="phone"
+        extra="In der Regel die Nummer der Eltern"
+      >
+        <Input type="tel" autoComplete="tel" />
+      </Form.Item>
+
+      <Form.Item
+        label="E-Mail"
+        name="email"
+        rules={[{ type: 'email', message: 'Das sieht nicht wie eine E-Mail-Adresse aus' }]}
+      >
+        <Input
+          type="email"
+          autoComplete="email"
+          autoCapitalize="none"
+          autoCorrect="off"
+        />
+      </Form.Item>
+
       <Form.Item
         label="Rolle"
         name="roleId"
@@ -68,6 +92,20 @@ export default function UserGeneralForm({
       >
         <Switch disabled={!istPlaner} aria-label="Aktiv" />
       </Form.Item>
+
+      {/* Nur fuer den Ministrantenrat: der Server liefert die Bemerkung einem
+          Ministranten gar nicht aus und nimmt sie von ihm auch nicht an. Ohne
+          diese Bedingung stuende hier ein leeres Feld, das beim Speichern
+          nichts tut. */}
+      {istPlaner && (
+        <Form.Item
+          label="Bemerkung"
+          name="note"
+          extra="Nur für den Ministrantenrat sichtbar"
+        >
+          <Input.TextArea rows={3} maxLength={2000} showCount />
+        </Form.Item>
+      )}
 
       <Space direction="vertical" size={8} style={{ width: '100%', marginTop: 8 }}>
         <Button type="primary" block loading={speichert} onClick={handleSave}>

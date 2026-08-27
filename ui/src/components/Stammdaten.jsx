@@ -11,7 +11,7 @@ import {
   Tag,
   Typography,
 } from 'antd'
-import { EditOutlined, PlusOutlined } from '@ant-design/icons'
+import { EditOutlined, PhoneOutlined, PlusOutlined } from '@ant-design/icons'
 import { doGetRequestAuth } from '../helper/RequestHelper'
 import { myToastError } from '../helper/ToastHelper'
 import useIsMobile from '../hooks/useIsMobile'
@@ -40,6 +40,13 @@ function MiniKarte({ user, rollen, onEditUser }) {
           <Typography.Text type="secondary" style={{ fontSize: 13 }}>
             {user.username}
           </Typography.Text>
+          {/* Als tel:-Link, nicht als Text: am Handy ist der Anruf genau der
+              Grund, warum die Nummer jetzt in den Stammdaten steht. */}
+          {user.phone && (
+            <Typography.Link href={`tel:${user.phone.replace(/\s/g, '')}`} style={{ fontSize: 13 }}>
+              <PhoneOutlined aria-hidden /> {user.phone}
+            </Typography.Link>
+          )}
           <Space size={4} wrap style={{ marginTop: 2 }}>
             <Tag>{rollenName(rollen, user.roleId)}</Tag>
             {user.active !== 1 && <Tag color="default">Inaktiv</Tag>}
@@ -98,7 +105,9 @@ export default function Stammdaten({ token, onEditUser, editorRoleId, aktualisie
       .filter((u) => (filter === 'aktiv' ? u.active === 1 : u.active !== 1))
       .filter((u) => {
         if (!s) return true
-        return `${u.firstname} ${u.lastname} ${u.username}`
+        // Auch ueber Telefon und E-Mail: bei einem unbekannten Anrufer im
+        // Display ist das die Frage, die man an die Liste hat.
+        return `${u.firstname} ${u.lastname} ${u.username} ${u.phone ?? ''} ${u.email ?? ''}`
           .toLowerCase()
           .includes(s)
       })
@@ -119,6 +128,16 @@ export default function Stammdaten({ token, onEditUser, editorRoleId, aktualisie
       sorter: (a, b) => a.lastname.localeCompare(b.lastname),
     },
     { title: 'Benutzername', dataIndex: 'username' },
+    {
+      title: 'Telefon',
+      dataIndex: 'phone',
+      render: (nummer) =>
+        nummer ? (
+          <Typography.Link href={`tel:${nummer.replace(/\s/g, '')}`}>{nummer}</Typography.Link>
+        ) : (
+          <Typography.Text type="secondary">–</Typography.Text>
+        ),
+    },
     {
       title: 'Rolle',
       dataIndex: 'roleId',
@@ -164,7 +183,7 @@ export default function Stammdaten({ token, onEditUser, editorRoleId, aktualisie
           Ministrant anlegen
         </Button>
         <Input.Search
-          placeholder="Name oder Benutzername suchen"
+          placeholder="Name, Benutzername oder Nummer suchen"
           allowClear
           value={suche}
           onChange={(e) => setSuche(e.target.value)}
