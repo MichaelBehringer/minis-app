@@ -30,14 +30,23 @@ Verfahren akzeptieren.
 
 ## Umgebungsvariablen
 
-Siehe `.env.example`. Alle haben einen Default, damit die Anwendung lokal auch
-ohne Datei startet; produktiv werden sie ueber docker-compose gesetzt.
+Siehe `.env.example`. Produktiv werden sie ueber docker-compose gesetzt.
 
-| Variable | Zweck |
-|---|---|
-| `MINIS_DB_DSN` | Zugang zur Datenbank |
-| `MINIS_JWT_SECRET` | Signaturschluessel der Anmeldung |
-| `MINIS_LISTEN_ADDR` | Adresse, auf der gelauscht wird. Im Container `:8080` |
+| Variable | Pflicht | Zweck |
+|---|---|---|
+| `MINIS_DB_DSN` | ja | Zugang zur Datenbank |
+| `MINIS_JWT_SECRET` | ja | Signaturschluessel der Anmeldung |
+| `MINIS_LISTEN_ADDR` | nein (`localhost:8080`) | Adresse, auf der gelauscht wird. Im Container `:8080` |
+
+Die beiden Pflichtwerte hatten bis zuletzt einen Default im Quellcode - und
+zwar den echten Produktivwert. Gedacht war das als "startet auch ohne .env";
+der Preis war, dass ein `go run .` ohne Datei sich mit der
+**Produktivdatenbank** verbindet. `PruefePflichtwerte` bricht den Start jetzt
+ab, wenn einer der beiden fehlt: dieselbe Strenge wie `${VAR:?...}` in der
+docker-compose.yml, die bisher nur fuer den Container galt.
+
+Die Werte stehen weiterhin in der Git-Historie. Sie aus dem Code zu nehmen
+holt keine Vertraulichkeit zurueck - was es verhindert, ist der Fehlgriff.
 
 ## Aufbau
 

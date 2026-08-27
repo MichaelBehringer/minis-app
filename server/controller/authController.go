@@ -49,6 +49,10 @@ func tokenGueltigkeit(angemeldetBleiben bool) time.Duration {
 }
 
 func neuesToken(id int, username string, roleId int, angemeldetBleiben bool) (string, error) {
+	if schluesselFehlt() {
+		return "", errors.New("MINIS_JWT_SECRET ist nicht gesetzt")
+	}
+
 	jetzt := time.Now()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user":   username,
@@ -104,11 +108,20 @@ func ErneuertesToken(claims jwt.MapClaims) (string, bool) {
 // Der Signaturschluessel. Wer ihn kennt, kann sich als beliebiger Benutzer
 // ausgeben, deshalb gehoert er in die Umgebung und nicht in den Quellcode.
 //
-// Der Default ist der Wert, der bis hierher fest im Code stand. Er steht damit
-// weiterhin in der Git-Historie und muss auf der Produktivmaschine ueber
-// MINIS_JWT_SECRET durch einen neuen ersetzt werden.
+// Ohne Default: hier stand bis zuletzt der echte Schluessel als Rueckfall.
+// PruefePflichtwerte verlangt ihn beim Start, der Wert ist hier also gesetzt.
+// In den Tests setzt ihn t.Setenv.
 func jwtSchluessel() []byte {
-	return []byte(Env("MINIS_JWT_SECRET", "axJGB96eQbhCOCSlEHe5QJszFo2qHBLP"))
+	return []byte(Env("MINIS_JWT_SECRET", ""))
+}
+
+// Ein leerer Schluessel ist ein Konfigurationsfehler und kein gueltiger
+// Schluessel: HMAC rechnet auch mit einer leeren Zeichenkette, und jeder
+// koennte dann selbst signieren. PruefePflichtwerte verhindert den Start ohne
+// Wert; diese Pruefung ist die zweite Sicherung fuer den Fall, dass jemand die
+// Reihenfolge aendert.
+func schluesselFehlt() bool {
+	return len(jwtSchluessel()) == 0
 }
 
 // DoLogin prueft die Zugangsdaten und gibt bei Erfolg ein Token zurueck.
@@ -173,6 +186,10 @@ func ExtractToken(c *gin.Context) (bool, jwt.MapClaims) {
 }
 
 func parseToken(tokenStr string) (bool, jwt.MapClaims) {
+	if schluesselFehlt() {
+		return false, jwt.MapClaims{}
+	}
+
 	claims := jwt.MapClaims{}
 	tkn, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
 		return jwtSchluessel(), nil

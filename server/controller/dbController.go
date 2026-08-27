@@ -45,7 +45,10 @@ func mitZeitlimits(dsn string) (string, error) {
 // nichts aendert; produktiv wird er ueber MINIS_DB_DSN gesetzt und das
 // Passwort muss gewechselt werden.
 func InitDB() error {
-	dsn, err := mitZeitlimits(Env("MINIS_DB_DSN", "myuser:gnidmewff112@tcp(130.61.10.8:3306)/minis"))
+	// Ohne Default: PruefePflichtwerte hat den Wert beim Start bereits
+	// verlangt. Der frueher hier stehende Default zeigte auf die
+	// Produktivdatenbank - ein `go run .` ohne .env schrieb also dorthin.
+	dsn, err := mitZeitlimits(Env("MINIS_DB_DSN", ""))
 	if err != nil {
 		return err
 	}

@@ -38,6 +38,9 @@ nano .env
 Die `.env` ist gitignored und enthält den Datenbank-Zugang und den
 Signaturschlüssel der Anmeldung. Fehlt sie, bricht `docker compose up` mit
 einer Meldung ab — es wird nichts stillschweigend mit Standardwerten gestartet.
+Dasselbe gilt jetzt auch außerhalb des Containers: `go run .` ohne diese beiden
+Werte bricht ab. Vorher griff dort ein Default aus dem Quellcode, und der zeigte
+auf die Produktivdatenbank.
 
 **Beide Werte müssen gewechselt werden.** Sie standen bis zur Modernisierung im
 Quellcode und stehen damit dauerhaft in der Git-Historie. Für den

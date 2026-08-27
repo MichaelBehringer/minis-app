@@ -229,3 +229,25 @@ func TestErneuertesToken(t *testing.T) {
 		}
 	})
 }
+
+func TestOhneSchluesselWirdNichtsAngenommen(t *testing.T) {
+	// Der Schluessel hatte bis zuletzt den echten Produktivwert als Default im
+	// Code. Ohne Default ist ein fehlender Wert ein Konfigurationsfehler - und
+	// darf nicht als leerer HMAC-Schluessel durchgehen, mit dem jeder selbst
+	// signieren koennte.
+	t.Setenv("MINIS_JWT_SECRET", "erst-gesetzt")
+	gueltig := tokenMit(t, jwt.SigningMethodHS256, jwt.MapClaims{
+		"user":   "testperson",
+		"roleId": 2,
+		"userId": 1,
+		"exp":    jwt.NewNumericDate(time.Now().Add(time.Hour)),
+	}, jwtSchluessel())
+
+	t.Setenv("MINIS_JWT_SECRET", "")
+	if ok, _ := parseToken(gueltig); ok {
+		t.Error("Token wurde ohne gesetzten Schluessel angenommen")
+	}
+	if _, err := neuesToken(1, "testperson", 2, true); err == nil {
+		t.Error("Token wurde ohne gesetzten Schluessel erzeugt")
+	}
+}

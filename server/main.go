@@ -26,6 +26,12 @@ func main() {
 	// server/.env - siehe .env.example.
 	_ = godotenv.Load()
 
+	// Vor allem anderen: ohne diese Werte wird nichts gestartet. Sie hatten
+	// bisher einen Default im Quellcode, der auf die Produktivdatenbank zeigte.
+	if err := PruefePflichtwerte(); err != nil {
+		log.Fatalf("%v", err)
+	}
+
 	if err := InitDB(); err != nil {
 		log.Fatalf("%v", err)
 	}
