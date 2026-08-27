@@ -15,6 +15,23 @@ type Event struct {
 	AssignedNames []string `json:"assignedNames"`
 }
 
+// PlanEvent ist eine Messe im Gesamtplan: Namen der Eingeteilten fuer die
+// Anzeige, Ids fuer die Frage "bin ich dabei".
+//
+// Eigener Typ und nicht Event oder PlannedEvent: der Gesamtplan ist fuer JEDEN
+// Angemeldeten lesbar, deshalb soll an dieser Nutzlast genau stehen, was dort
+// hinein darf - und nicht versehentlich mitwachsen, wenn Event erweitert wird.
+type PlanEvent struct {
+	Id              int      `json:"id"`
+	Name            string   `json:"name"`
+	DateBegin       string   `json:"dateBegin"`
+	TimeBegin       string   `json:"timeBegin"`
+	Location        string   `json:"location"`
+	MinimalUser     int      `json:"minimalUser"`
+	AssignedNames   []string `json:"assignedNames"`
+	AssignedUserIds []int    `json:"assignedUserIds"`
+}
+
 type PlannedEvent struct {
 	Id              int    `json:"id"`
 	Name            string `json:"name"`

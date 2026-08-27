@@ -65,6 +65,10 @@ func main() {
 	// aller anderen lesen.
 	auth.GET("/events/:userId", AllowSelfOrMinRole(2), getEventsForUser)
 	auth.GET("/events", AllowMinRole(2), getEventsByDateRange)
+	// Der Gesamtplan, bewusst fuer jeden Angemeldeten: bisher sah ein
+	// Ministrant nur seine eigenen Einsaetze, und wer sonst dran ist, stand nur
+	// im PDF ab Rolle 2. Derselbe Plan haengt in der Kirche aus.
+	auth.GET("/plan", getPlan)
 	auth.PATCH("/events/:eventId/assign/add", AllowMinRole(2), addUserToEvent)
 	auth.PATCH("/events/:eventId/assign/remove", AllowMinRole(2), removeUserFromEvent)
 	auth.PUT("/event", AllowMinRole(2), putEvent)
@@ -210,6 +214,29 @@ func getEventsByDateRange(c *gin.Context) {
 		return
 	}
 	c.IndentedJSON(http.StatusOK, events)
+}
+
+func getPlan(c *gin.Context) {
+	von := c.Query("from")
+	bis := c.Query("to")
+	if von == "" || bis == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "from und to sind noetig"})
+		return
+	}
+
+	// Dieselbe Grenze wie beim Sperren eines Zeitraums: ohne sie kann ein
+	// Aufruf den ganzen Bestand samt Namen in einem Rutsch abholen.
+	if _, _, err := ZeitraumGrenzen(von, bis); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	plan, err := GetPlanByDateRange(von, bis)
+	if err != nil {
+		serverFehler(c, "Plan laden", err)
+		return
+	}
+	c.JSON(http.StatusOK, plan)
 }
 
 func addUserToEvent(c *gin.Context) {

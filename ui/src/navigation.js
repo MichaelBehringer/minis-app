@@ -2,6 +2,7 @@ import {
   CalendarOutlined,
   ScheduleOutlined,
   StopOutlined,
+  TableOutlined,
   TeamOutlined,
 } from '@ant-design/icons'
 
@@ -28,6 +29,16 @@ const NAV_ITEMS = [
     label: 'Meine Sperrtage',
     labelShort: 'Sperrtage',
     icon: StopOutlined,
+    minRole: 1,
+  },
+  {
+    // Der Plan, den jeder sehen darf - er haengt in der Kirche aus. Bisher sah
+    // ein Ministrant nur seine eigenen Einsaetze, und wer sonst dran ist,
+    // stand nur im PDF ab Rolle 2.
+    path: '/plan',
+    label: 'Alle Messen',
+    labelShort: 'Plan',
+    icon: TableOutlined,
     minRole: 1,
   },
   {

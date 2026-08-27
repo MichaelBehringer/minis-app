@@ -38,6 +38,10 @@ const UserEditModal = lazy(() => import('./UserEditModal'))
 // auch die Kalenderansicht der Startseite nachlaedt.
 const Sperrtage = lazy(() => import('./Sperrtage'))
 
+// Der Gesamtplan bringt die Zeitraumauswahl mit und wird nicht bei jedem
+// Oeffnen der App gebraucht.
+const Gesamtplan = lazy(() => import('./Gesamtplan'))
+
 const { Content, Header } = Layout
 
 function Ladeanzeige({ text = 'Wird geladen' }) {
@@ -257,6 +261,10 @@ function App(props) {
               <Route
                 path="/sperrtage"
                 element={<Sperrtage userId={userId} token={props.token} />}
+              />
+              <Route
+                path="/plan"
+                element={<Gesamtplan token={props.token} userId={userId} />}
               />
               {istPlaner(roleId) && (
                 <>

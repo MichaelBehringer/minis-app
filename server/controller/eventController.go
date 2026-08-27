@@ -133,6 +133,60 @@ func GetEventsByDateRange(from string, to string) ([]PlannedEvent, error) {
 	return events, nil
 }
 
+// GetPlanByDateRange liefert den Gesamtplan eines Zeitraums.
+//
+// Bis hierher sah ein Ministrant nur seine eigenen Einsaetze. Wer am Sonntag
+// dran ist, stand nur im PDF - und das ist ab Rolle 2. Dabei haengt genau
+// dieser Plan in der Kirche aus.
+//
+// Bewusst ohne minimalUser-Vergleich, ohne Kontaktdaten und ohne die Ids der
+// Messe hinaus: Namen, Zeit, Ort. Genau das, was am Aushang steht.
+func GetPlanByDateRange(from string, to string) ([]PlanEvent, error) {
+	results, err := ExecuteSQL(`
+		SELECT e.id, e.name, e.date_begin, e.time_begin, l.name, IFNULL(e.minimalUser, 0)
+		FROM event e
+		INNER JOIN location l ON l.id = e.location_id
+		WHERE e.date_begin BETWEEN ? AND ?
+		ORDER BY e.date_begin, e.time_begin`, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer results.Close()
+
+	plan := []PlanEvent{}
+	for results.Next() {
+		var ev PlanEvent
+		if err := results.Scan(&ev.Id, &ev.Name, &ev.DateBegin, &ev.TimeBegin,
+			&ev.Location, &ev.MinimalUser); err != nil {
+			return nil, err
+		}
+		plan = append(plan, ev)
+	}
+	if err := results.Err(); err != nil {
+		return nil, err
+	}
+
+	// Erst nach dem Schliessen: solange die aeussere Abfrage laeuft, belegt sie
+	// ihre Verbindung.
+	results.Close()
+
+	for i := range plan {
+		namen, err := getAssignedNames(plan[i].Id)
+		if err != nil {
+			return nil, err
+		}
+		plan[i].AssignedNames = namen
+
+		ids, err := getAssignedUsers(plan[i].Id)
+		if err != nil {
+			return nil, err
+		}
+		plan[i].AssignedUserIds = ids
+	}
+
+	return plan, nil
+}
+
 func AddUserToEvent(eventId string, userId int) error {
 	_, err := ExecuteDDL(
 		"INSERT INTO plan (user_id, event_id) VALUES (?, ?)",
@@ -489,7 +543,12 @@ const maxTageJeZeitraum = 366
 //
 // Vertauschte Grenzen werden still korrigiert: wer im Kalender erst das Ende
 // und dann den Anfang antippt, meint denselben Zeitraum.
-func zeitraumGrenzen(von string, bis string) (time.Time, time.Time, error) {
+// ZeitraumGrenzen liest und normalisiert die Grenzen eines Zeitraums.
+//
+// Exportiert, weil nicht nur das Sperren einen Zeitraum begrenzen muss: auch
+// der Gesamtplan soll nicht in einem Aufruf den ganzen Bestand samt Namen
+// herausgeben.
+func ZeitraumGrenzen(von string, bis string) (time.Time, time.Time, error) {
 	// Bewusst ohne %w um den Fehler von time.Parse: dessen Text nennt das
 	// interne Layout ("as \"2006\"") und landet ueber den Handler beim Nutzer.
 	a, err := time.Parse("2006-01-02", von)
@@ -516,7 +575,7 @@ func zeitraumGrenzen(von string, bis string) (time.Time, time.Time, error) {
 // AddBlockDates sperrt alle Tage eines Zeitraums und gibt zurueck, wie viele
 // neu dazugekommen sind.
 func AddBlockDates(userId string, von string, bis string) (int, error) {
-	a, b, err := zeitraumGrenzen(von, bis)
+	a, b, err := ZeitraumGrenzen(von, bis)
 	if err != nil {
 		return 0, err
 	}
@@ -553,7 +612,7 @@ func AddBlockDates(userId string, von string, bis string) (int, error) {
 
 // RemoveBlockDates gibt alle Tage eines Zeitraums wieder frei.
 func RemoveBlockDates(userId string, von string, bis string) (int, error) {
-	a, b, err := zeitraumGrenzen(von, bis)
+	a, b, err := ZeitraumGrenzen(von, bis)
 	if err != nil {
 		return 0, err
 	}
