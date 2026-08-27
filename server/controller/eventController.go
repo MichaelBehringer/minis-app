@@ -461,12 +461,26 @@ func GetAssignmentOptionsForEvent(eventId string) (EventAssignmentOptionsRespons
 					AND b.ban_date = ?
 				) THEN 'banned'
 
-				WHEN ? = 0 AND NOT EXISTS (
-					SELECT 1
-					FROM user_weekday uw
-					WHERE uw.user_id = u.id
-					AND LOWER(TRIM(uw.weekday)) IN (?, ?, ?, ?)
-				) THEN 'weekday_inactive'
+				-- Nur wer ueberhaupt Wochentage gepflegt hat, kann sie
+				-- verletzen. Ohne die erste EXISTS-Bedingung greift das
+				-- NOT EXISTS auch bei null Zeilen: wer nie einen Wochentag
+				-- eingetragen hat, galt damit bei jeder Messe als
+				-- "Wochentag nicht aktiv" - im Bestand betraf das 6 der 33
+				-- aktiven Ministranten, die schlicht nichts angegeben hatten.
+				--
+				-- Kein Eintrag heisst jetzt: keine Einschraenkung.
+				WHEN ? = 0
+					AND EXISTS (
+						SELECT 1
+						FROM user_weekday uw
+						WHERE uw.user_id = u.id
+					)
+					AND NOT EXISTS (
+						SELECT 1
+						FROM user_weekday uw
+						WHERE uw.user_id = u.id
+						AND LOWER(TRIM(uw.weekday)) IN (?, ?, ?, ?)
+					) THEN 'weekday_inactive'
 
 				ELSE 'ok'
 			END AS availability_status,

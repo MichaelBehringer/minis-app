@@ -118,7 +118,7 @@ describe('AssignSheet', () => {
   })
 
   it('behandelt mehr als vorgesehen nicht als Fehler', () => {
-    // In den echten Daten wird die vorgesehene Anzahl ueberwiegend
+    // In den echten Daten wird die vorgesehene Anzahl bei 29 von 122 Messen
     // ueberschritten - das darf nicht wie ein Problem aussehen.
     zeige({ zugewiesen: [1, 2, 3, 4] })
     expect(screen.getByText(/mehr als vorgesehen/)).toBeInTheDocument()
@@ -135,5 +135,76 @@ describe('AssignSheet', () => {
 
     expect(screen.getByRole('button', { name: /Clara Christ/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Anna Adler/ })).not.toBeInTheDocument()
+  })
+
+  it('fragt nach, bevor eine Sperrung uebergangen wird', async () => {
+    // Im Bestand liegen 26 Einteilungen auf einem selbst gesperrten Tag.
+    // Blockiert wird nichts, aber es soll eine Entscheidung sein.
+    const nutzer = userEvent.setup()
+    const { onToggle } = zeige()
+
+    await nutzer.click(screen.getByRole('button', { name: /Clara Christ/ }))
+
+    expect(onToggle).not.toHaveBeenCalled()
+    // antd rendert den Titel zweimal (sichtbar und fuer Screenreader).
+    expect(
+      await screen.findAllByText(/Clara Christ hat diesen Tag gesperrt/)
+    ).not.toHaveLength(0)
+
+    await nutzer.click(screen.getByRole('button', { name: 'Trotzdem einteilen' }))
+    expect(onToggle).toHaveBeenCalledExactlyOnceWith(3)
+  })
+
+  it('teilt nach Abbrechen der Rueckfrage nicht ein', async () => {
+    const nutzer = userEvent.setup()
+    const { onToggle } = zeige()
+
+    await nutzer.click(screen.getByRole('button', { name: /Clara Christ/ }))
+    await nutzer.click(screen.getByRole('button', { name: 'Abbrechen' }))
+
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it('fragt auch bei einem inaktiven Ministranten nach', async () => {
+    const nutzer = userEvent.setup()
+    const { onToggle } = zeige()
+
+    await nutzer.click(screen.getByRole('button', { name: /Dora Dorn/ }))
+
+    expect(onToggle).not.toHaveBeenCalled()
+    expect(await screen.findAllByText(/Dora Dorn ist als inaktiv/)).not.toHaveLength(0)
+  })
+
+  it('fragt beim Entfernen nicht nach', async () => {
+    // Eine Sperrung ist ein Grund, jemanden NICHT einzuteilen - beim
+    // Austragen waere die Rueckfrage nur im Weg.
+    const nutzer = userEvent.setup()
+    const { onToggle } = zeige({ zugewiesen: [3] })
+
+    await nutzer.click(screen.getByRole('button', { name: /Clara Christ/ }))
+
+    expect(onToggle).toHaveBeenCalledExactlyOnceWith(3)
+  })
+
+  it('fragt beim Wochentag nicht nach', async () => {
+    // Der Wochentag ist ein Wunsch, keine Absage. Im Bestand widersprechen ihm
+    // rund 40 Einteilungen - eine Rueckfrage bei jeder waere nur im Weg.
+    const nutzer = userEvent.setup()
+    const { onToggle } = zeige({
+      optionen: [
+        {
+          id: 9,
+          firstname: 'Emil',
+          lastname: 'Egger',
+          status: 'weekday_inactive',
+          lastAssignmentDaysBefore: 30,
+          preferredWith: [],
+        },
+      ],
+    })
+
+    await nutzer.click(screen.getByRole('button', { name: /Emil Egger/ }))
+
+    expect(onToggle).toHaveBeenCalledExactlyOnceWith(9)
   })
 })
