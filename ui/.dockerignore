@@ -1,0 +1,15 @@
+# Ohne diese Datei landet node_modules im Build-Context: hunderte Megabyte,
+# die zum Daemon uebertragen werden und die npm ci gleich neu erzeugt.
+node_modules
+dist
+build
+coverage
+
+.git
+.gitignore
+.env
+.env.local
+Dockerfile
+.dockerignore
+README.md
+npm-debug.log*

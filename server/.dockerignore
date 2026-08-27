@@ -1,0 +1,9 @@
+# Zugangsdaten gehoeren nicht ins Image - im Container kommen sie ueber
+# Umgebungsvariablen aus docker-compose.
+.env
+
+.git
+.gitignore
+Dockerfile
+.dockerignore
+README.md
