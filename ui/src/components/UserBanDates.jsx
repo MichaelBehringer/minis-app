@@ -4,18 +4,15 @@ import {
   Button,
   Calendar,
   Segmented,
-  Space,
   Spin,
   Tag,
   Typography,
   theme,
 } from 'antd'
-import { LockOutlined, UnlockOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { myToastError, myToastSuccess } from '../helper/ToastHelper'
 import { doGetRequestAuth, doPatchRequestAuth } from '../helper/RequestHelper'
 import KalenderKopf from './KalenderKopf'
-import ZeitraumWahl from './ZeitraumWahl'
 
 const iso = (d) => d.format('YYYY-MM-DD')
 
@@ -29,8 +26,6 @@ export default function UserBanDates({ userId, token }) {
   // 'bereich': erstes Tippen setzt den Anfang, zweites das Ende.
   const [modus, setModus] = useState('einzeln')
   const [bereichStart, setBereichStart] = useState(null)
-
-  const [zeitraum, setZeitraum] = useState(null)
 
   const nachladen = useCallback(async () => {
     const res = await doGetRequestAuth(`user/${userId}/ban`, token)
@@ -178,47 +173,8 @@ export default function UserBanDates({ userId, token }) {
 
   if (loading) return <Spin />
 
-  const zeitraumGewaehlt = Boolean(zeitraum?.[0] && zeitraum?.[1])
-  const anzahlImZeitraum = zeitraumGewaehlt
-    ? Math.abs(zeitraum[1].startOf('day').diff(zeitraum[0].startOf('day'), 'day')) + 1
-    : 0
-
   return (
     <div>
-      {/* Zeitraum. Der haeufige Fall ist "ich bin zwei Wochen weg" - den Tag
-          fuer Tag anzutippen waere die eigentliche Arbeit. */}
-      <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 14 }}>
-        <Typography.Text strong>Zeitraum auf einmal</Typography.Text>
-        <ZeitraumWahl value={zeitraum} onChange={setZeitraum} />
-        <Space style={{ width: '100%' }} size={8}>
-          <Button
-            type="primary"
-            icon={<LockOutlined aria-hidden />}
-            disabled={!zeitraumGewaehlt}
-            loading={speichert}
-            onClick={async () => {
-              if (await zeitraumAnwenden(zeitraum[0], zeitraum[1], true)) {
-                setZeitraum(null)
-              }
-            }}
-          >
-            {zeitraumGewaehlt ? `${anzahlImZeitraum} Tage sperren` : 'Sperren'}
-          </Button>
-          <Button
-            icon={<UnlockOutlined aria-hidden />}
-            disabled={!zeitraumGewaehlt}
-            loading={speichert}
-            onClick={async () => {
-              if (await zeitraumAnwenden(zeitraum[0], zeitraum[1], false)) {
-                setZeitraum(null)
-              }
-            }}
-          >
-            Freigeben
-          </Button>
-        </Space>
-      </Space>
-
       <Segmented
         block
         style={{ marginBottom: 10 }}

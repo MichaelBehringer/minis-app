@@ -108,6 +108,35 @@ docker compose up --build -d
 Die Nutzer bekommen beim nächsten Öffnen den Hinweis „Neue Version verfügbar"
 und entscheiden selbst, wann sie neu laden. Die `.env` bleibt unberührt.
 
+### Kommt ein Update auch bei installierten Apps an?
+
+Viele öffnen die Anwendung über ein Symbol auf dem Startbildschirm. Drei Dinge
+sorgen dafür, dass Updates dort ankommen:
+
+1. **`index.html` wird nicht gecacht** (`Cache-Control: no-cache` in
+   `ui/ui-nginx.conf`). Die alte Auslieferung über httpd setzte gar keine
+   Cache-Header, ein Browser durfte die Seite also nach eigenem Ermessen
+   behalten. Genau daran scheitern Updates sonst.
+2. **Der Service Worker sieht aktiv nach.** Ein Browser prüft von sich aus bei
+   einer Navigation. Eine vom Startbildschirm gestartete App wird aber meist
+   nur in den Vordergrund geholt und nicht neu geladen — deshalb prüft
+   `PwaUpdatePrompt` bei jedem Zurückkehren in die App und zusätzlich stündlich.
+3. **`/static/` heilt alte Installationen.** Die alte Fassung lud ihre Dateien
+   von dort. Hängt bei jemandem noch die alte `index.html` im Cache, bekommt
+   sie statt eines fehlenden Skripts `public/legacy-reload.js`, das Service
+   Worker und Caches abräumt und die Seite unter neuer Adresse frisch lädt.
+
+### Müssen sich alle neu anmelden?
+
+**Ja, einmal.** Die Tokens der alten Fassung hatten kein Ablaufdatum, und
+`parseToken` fordert jetzt eines (`jwt.WithExpirationRequired`). Alte Tokens
+werden damit abgewiesen, auch wenn derselbe Signaturschlüssel weiterverwendet
+würde — es hängt also nicht daran, dass der Schlüssel gewechselt wird.
+
+Der Ablauf für den Nutzer: beim ersten Öffnen kommt „Sitzung abgelaufen. Bitte
+neu anmelden.", die Sitzung wird beendet und die Anmeldemaske erscheint. Kein
+weißer Bildschirm und keine Kette von Fehlermeldungen.
+
 ## Wartung
 
 Aus der Crontab (`sudo crontab -e`):

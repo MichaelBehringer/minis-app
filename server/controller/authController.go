@@ -114,6 +114,14 @@ func parseToken(tokenStr string) (bool, jwt.MapClaims) {
 		// oeffentlicher Schluessel auf, kann ein Angreifer damit selbst
 		// signieren.
 		jwt.WithValidMethods([]string{"HS256"}),
+		// Ein Token ohne exp gilt fuer die Bibliothek unbegrenzt - sie prueft
+		// nur, was da ist. Genau so sahen die Tokens der alten Fassung aus.
+		//
+		// Mit dieser Forderung werden sie abgewiesen, auch wenn derselbe
+		// Signaturschluessel weiterverwendet wird. Das ist der Unterschied
+		// zwischen "alle muessen sich neu anmelden, wenn der Schluessel
+		// gewechselt wird" und "alle muessen sich neu anmelden".
+		jwt.WithExpirationRequired(),
 	)
 	return err == nil && tkn.Valid, claims
 }

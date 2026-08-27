@@ -15,7 +15,7 @@ import {
   SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons'
-import { doGetRequestAuth } from '../helper/RequestHelper'
+import { doGetRequestAuth, istTokenUngueltig } from '../helper/RequestHelper'
 import { myToastError } from '../helper/ToastHelper'
 import { useColorSchemeSetting } from '../colorScheme'
 import useIsMobile from '../hooks/useIsMobile'
@@ -98,9 +98,15 @@ function App(props) {
         setUserId(res.data.id)
         setRoleId(res.data.roleId)
       })
-      .catch(() => {
+      .catch((fehler) => {
         // Vorher gab es hier keinen Fehlerzweig: schlug checkToken fehl, blieb
         // dauerhaft "Daten werden geladen" stehen, ohne jeden Hinweis.
+        //
+        // Bei einem ungueltigen Token meldet sich schon der Interceptor mit
+        // "Sitzung abgelaufen" und beendet die Sitzung. Ohne diese Ausnahme
+        // stuenden beim Umstieg auf die neue Fassung zwei Meldungen
+        // uebereinander - alte Tokens werden dabei alle abgewiesen.
+        if (istTokenUngueltig(fehler)) return
         myToastError('Benutzerdaten konnten nicht geladen werden')
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps

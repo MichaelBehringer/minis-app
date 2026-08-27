@@ -89,3 +89,24 @@ func TestJwtSchluesselAusUmgebung(t *testing.T) {
 		t.Errorf("Schluessel = %q", jwtSchluessel())
 	}
 }
+
+func TestTokenOhneExpWirdAbgelehnt(t *testing.T) {
+	// So sahen die Tokens der alten Fassung aus: keine Ablaufzeit, dafuer eine
+	// creationTime, die niemand geprueft hat.
+	//
+	// Sie werden jetzt abgewiesen, auch wenn derselbe Signaturschluessel
+	// weiterverwendet wird - sonst haetten alte Tokens nach dem Deployen
+	// weitergegolten, und zwar unbegrenzt.
+	t.Setenv("MINIS_JWT_SECRET", "test-schluessel-nur-fuer-den-test")
+
+	alt := tokenMit(t, jwt.SigningMethodHS256, jwt.MapClaims{
+		"user":         "testperson",
+		"roleId":       2,
+		"userId":       1,
+		"creationTime": time.Now().UnixNano(),
+	}, jwtSchluessel())
+
+	if ok, _ := parseToken(alt); ok {
+		t.Error("Token ohne Ablaufzeit wurde angenommen")
+	}
+}
