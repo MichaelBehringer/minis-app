@@ -154,6 +154,90 @@ func RemoveUserFromEvent(eventId string, userId int) error {
 	return err
 }
 
+// ErrMesseNichtGefunden meldet eine Id, zu der es keine Messe gibt.
+//
+// Getrennt von technischen Fehlern, damit der Handler 404 antworten kann statt
+// 500: eine Messe, die gerade von jemand anderem geloescht wurde, ist kein
+// Serverfehler.
+var ErrMesseNichtGefunden = errors.New("Diese Messe gibt es nicht")
+
+// UpdateEvent aendert eine bestehende Messe.
+//
+// Bis hierher gab es nur Anlegen. Ein Tippfehler in Uhrzeit, Ort oder
+// Sollstaerke war damit endgueltig - und eine Serie mit falschem Wochentag
+// erzeugte dreissig Termine, die nur per SQL wieder wegzubekommen waren.
+func UpdateEvent(eventId string, ev Event) error {
+	res, err := ExecuteDDL(`
+		UPDATE event
+		SET name = ?, date_begin = ?, time_begin = ?, location_id = ?,
+			minimalUser = ?, ignoreWeekday = ?
+		WHERE id = ?`,
+		ev.Name, ev.DateBegin, ev.TimeBegin, ev.LocationID,
+		ev.MinimalUser, ev.IgnoreWeekday, eventId,
+	)
+	if err != nil {
+		return err
+	}
+
+	// RowsAffected ist 0, wenn es die Id nicht gibt - aber auch, wenn sich
+	// nichts geaendert hat. Deshalb getrennt nachsehen, ob die Messe existiert.
+	betroffen, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if betroffen == 0 {
+		var vorhanden int
+		if err := ExecuteSQLRow("SELECT COUNT(*) FROM event WHERE id = ?", eventId).Scan(&vorhanden); err != nil {
+			return err
+		}
+		if vorhanden == 0 {
+			return ErrMesseNichtGefunden
+		}
+	}
+	return nil
+}
+
+// DeleteEvent loescht eine Messe samt ihrer Einteilungen.
+//
+// In einer Transaktion, weil beides zusammengehoert: plan hat einen
+// Fremdschluessel auf event, ein Loeschen ohne die Einteilungen schlaegt fehl -
+// und ein Loeschen der Einteilungen ohne die Messe waere ein stiller
+// Datenverlust. Die Zahl der entfernten Einteilungen geht zurueck, damit der
+// Aufrufer sie melden kann.
+func DeleteEvent(eventId string) (int, error) {
+	tx, err := GetDB().Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec("DELETE FROM plan WHERE event_id = ?", eventId)
+	if err != nil {
+		return 0, err
+	}
+	einteilungen, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+
+	res, err = tx.Exec("DELETE FROM event WHERE id = ?", eventId)
+	if err != nil {
+		return 0, err
+	}
+	messen, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if messen == 0 {
+		return 0, ErrMesseNichtGefunden
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int(einteilungen), nil
+}
+
 func CreateEvent(ev Event) (int, error) {
 	statement := `
         INSERT INTO event (name, date_begin, time_begin, location_id, minimalUser, ignoreWeekday)

@@ -62,6 +62,10 @@ func main() {
 	auth.PATCH("/events/:eventId/assign/add", AllowMinRole(2), addUserToEvent)
 	auth.PATCH("/events/:eventId/assign/remove", AllowMinRole(2), removeUserFromEvent)
 	auth.PUT("/event", AllowMinRole(2), putEvent)
+	// Bearbeiten und Loeschen gab es bisher nicht: ein Tippfehler in Uhrzeit,
+	// Ort oder Sollstaerke war endgueltig.
+	auth.PATCH("/event/:eventId", AllowMinRole(2), patchEvent)
+	auth.DELETE("/event/:eventId", AllowMinRole(2), deleteEvent)
 	// Mehrere Messen auf einmal, fuer eine Serie gleichartiger Termine.
 	auth.PUT("/events", AllowMinRole(2), putEvents)
 
@@ -276,6 +280,43 @@ func putEvent(c *gin.Context) {
 		"status": "created",
 		"id":     id,
 	})
+}
+
+func patchEvent(c *gin.Context) {
+	var ev Event
+	if err := c.ShouldBindJSON(&ev); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ungueltige Anfrage"})
+		return
+	}
+
+	err := UpdateEvent(c.Param("eventId"), ev)
+	if errors.Is(err, ErrMesseNichtGefunden) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Messe speichern", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "updated"})
+}
+
+func deleteEvent(c *gin.Context) {
+	entfernt, err := DeleteEvent(c.Param("eventId"))
+	if errors.Is(err, ErrMesseNichtGefunden) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Messe loeschen", err)
+		return
+	}
+
+	// Die Zahl der mitgeloeschten Einteilungen geht zurueck, damit die
+	// Anwendung sie melden kann - "3 Einteilungen mit entfernt" ist die
+	// Information, die dabei zaehlt.
+	c.JSON(http.StatusOK, gin.H{"status": "deleted", "removedAssignments": entfernt})
 }
 
 // putEvents legt eine Serie gleichartiger Messen an.

@@ -13,12 +13,14 @@ import {
 import {
   ClockCircleOutlined,
   DownloadOutlined,
+  EditOutlined,
   EnvironmentOutlined,
   PlusOutlined,
   TeamOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
+  doDeleteRequestAuth,
   doGetRequestAuth,
   doGetRequestBlobAuth,
   doPatchRequestAuth,
@@ -28,7 +30,7 @@ import { myToastError, myToastInfo, myToastSuccess } from '../helper/ToastHelper
 import useIsMobile from '../hooks/useIsMobile'
 import { nameVon } from '../helper/einteilung'
 import AssignSheet from './AssignSheet'
-import NeueMesseSheet from './NeueMesseSheet'
+import MesseSheet from './MesseSheet'
 import ZeitraumWahl from './ZeitraumWahl'
 
 // Beim Öffnen nicht mit leerem Bildschirm anfangen: von heute an zwei Monate
@@ -44,7 +46,7 @@ function uhrzeit(wert) {
 }
 
 // Karte einer Messe mit dem Einstieg ins Einteilen.
-function MesseKarte({ ev, namenNachId, onEinteilen }) {
+function MesseKarte({ ev, namenNachId, onEinteilen, onBearbeiten }) {
   const zugewiesen = ev.assignedUserIds ?? []
   const soll = ev.minimalUser ?? 0
   const anzahl = zugewiesen.length
@@ -63,9 +65,18 @@ function MesseKarte({ ev, namenNachId, onEinteilen }) {
         <span style={{ whiteSpace: 'normal', lineHeight: 1.35 }}>{ev.name}</span>
       }
       extra={
-        <Tag color={farbe} style={{ marginInlineEnd: 0 }}>
-          {anzahl}/{soll}
-        </Tag>
+        <Space size={4}>
+          <Tag color={farbe} style={{ marginInlineEnd: 0 }}>
+            {anzahl}/{soll}
+          </Tag>
+          <Button
+            type="text"
+            size="small"
+            icon={<EditOutlined aria-hidden />}
+            onClick={() => onBearbeiten(ev)}
+            aria-label={`${ev.name} am ${dayjs(ev.dateBegin).format('DD.MM.YYYY')} bearbeiten`}
+          />
+        </Space>
       }
     >
       <Space direction="vertical" size={8} style={{ width: '100%' }}>
@@ -121,6 +132,8 @@ export default function Einteilung({ token }) {
   const [alleMinis, setAlleMinis] = useState([])
 
   const [neueMesseOffen, setNeueMesseOffen] = useState(false)
+  // Die Messe, die bearbeitet wird - null heisst "neu anlegen".
+  const [bearbeiteteMesse, setBearbeiteteMesse] = useState(null)
 
   const [aktivesEvent, setAktivesEvent] = useState(null)
   const [optionen, setOptionen] = useState([])
@@ -261,6 +274,39 @@ export default function Einteilung({ token }) {
     }
   }
 
+  const aendereMesse = async (id, daten) => {
+    try {
+      await doPatchRequestAuth(`event/${id}`, daten, token)
+      myToastSuccess('Messe gespeichert')
+      await ladeEvents(zeitraum)
+      return true
+    } catch (fehler) {
+      myToastError(
+        fehler?.response?.data?.error ?? 'Messe konnte nicht gespeichert werden'
+      )
+      return false
+    }
+  }
+
+  const loescheMesse = async (id) => {
+    try {
+      const res = await doDeleteRequestAuth(`event/${id}`, undefined, token)
+      const entfernt = res.data?.removedAssignments ?? 0
+      myToastSuccess(
+        entfernt === 0
+          ? 'Messe gelöscht'
+          : `Messe gelöscht, ${entfernt} ${entfernt === 1 ? 'Einteilung' : 'Einteilungen'} mit entfernt`
+      )
+      await ladeEvents(zeitraum)
+      return true
+    } catch (fehler) {
+      myToastError(
+        fehler?.response?.data?.error ?? 'Messe konnte nicht gelöscht werden'
+      )
+      return false
+    }
+  }
+
   const pdfHerunterladen = async () => {
     if (!zeitraum || !zeitraum[0] || !zeitraum[1]) {
       myToastInfo('Bitte zuerst einen Zeitraum auswählen')
@@ -342,6 +388,10 @@ export default function Einteilung({ token }) {
             // darin.
             <Col xs={24} sm={12} lg={8} xxl={6} key={ev.id}>
               <MesseKarte
+                onBearbeiten={(m) => {
+                  setBearbeiteteMesse(m)
+                  setNeueMesseOffen(true)
+                }}
                 ev={ev}
                 namenNachId={namenNachId}
                 onEinteilen={oeffneEinteilen}
@@ -351,11 +401,17 @@ export default function Einteilung({ token }) {
         </Row>
       )}
 
-      <NeueMesseSheet
+      <MesseSheet
         open={neueMesseOffen}
-        onClose={() => setNeueMesseOffen(false)}
+        onClose={() => {
+          setNeueMesseOffen(false)
+          setBearbeiteteMesse(null)
+        }}
         locationList={locationList}
+        messe={bearbeiteteMesse}
         onSpeichern={speichereMessen}
+        onAendern={aendereMesse}
+        onLoeschen={loescheMesse}
       />
 
       <AssignSheet

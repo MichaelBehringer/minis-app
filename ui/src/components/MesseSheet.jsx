@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
+  App as AntApp,
   Button,
   Checkbox,
   DatePicker,
@@ -19,29 +20,70 @@ import {
   WOCHENTAGE,
   serienTermine,
 } from '../helper/einteilung'
+import dayjs from 'dayjs'
 import Sheet from './Sheet'
 import ZeitraumWahl from './ZeitraumWahl'
 
-// Anlegen einer einzelnen Messe oder einer ganzen Serie.
+// Anlegen, Bearbeiten und Löschen einer Messe.
 //
-// Die Serie ist der Regelfall: von 122 Messen liegen 113 in derselben Kirche,
-// und die Wochentage sind fast ausschliesslich Samstag und Sonntag. Jeden
-// Termin einzeln einzutragen war entsprechend viel Wiederholung.
-export default function NeueMesseSheet({ open, onClose, locationList, onSpeichern }) {
+// Beim Anlegen ist die Serie der Regelfall: von 122 Messen liegen 113 in
+// derselben Kirche, und die Wochentage sind fast ausschließlich Samstag und
+// Sonntag. Jeden Termin einzeln einzutragen war entsprechend viel Wiederholung.
+//
+// Beim Bearbeiten fällt die Serie weg - es geht um genau diesen einen Termin.
+// Dieselbe Maske für beides, weil die Felder identisch sind: eine zweite wäre
+// eine Kopie, die auseinanderläuft.
+export default function MesseSheet({
+  open,
+  onClose,
+  locationList,
+  onSpeichern,
+  onAendern,
+  onLoeschen,
+  messe,
+}) {
+  const bearbeiten = Boolean(messe)
   const [modus, setModus] = useState('einzel')
   const [speichert, setSpeichert] = useState(false)
   const [form] = Form.useForm()
+  const { modal } = AntApp.useApp()
+
+  // Beim Öffnen die Werte der Messe eintragen. Ohne open in den Abhängigkeiten
+  // stünden nach einem Wechsel der Messe die alten Werte in der Maske.
+  useEffect(() => {
+    // Nur Werte eintragen, keinen Zustand setzen: der Modus wird beim
+    // Bearbeiten ohnehin nicht aus dem State gelesen (siehe effektiverModus),
+    // und das Leeren erledigt schliessen() auf jedem Schliessweg.
+    if (!open || !messe) return
+
+    form.setFieldsValue({
+      name: messe.name,
+      date: messe.dateBegin ? dayjs(messe.dateBegin) : null,
+      // Die Zeit kommt als HH:mm:ss - ohne Format ergibt dayjs damit ein
+      // ungültiges Datum.
+      time: messe.timeBegin ? dayjs(messe.timeBegin, 'HH:mm:ss') : null,
+      locationId: messe.locationId,
+      minimalUser: messe.minimalUser ?? 0,
+      ignoreWeekday: Boolean(messe.ignoreWeekday),
+    })
+    // form ist stabil, messe.id genügt als Auslöser.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, messe?.id])
 
   // Fuer die Vorschau der Serie mitlesen.
   const zeitraum = Form.useWatch('zeitraum', form)
   const wochentag = Form.useWatch('weekday', form)
 
+  // Beim Bearbeiten geht es um genau diesen einen Termin - eine Serie gibt es
+  // dort nicht, und die Umschaltung ist ausgeblendet.
+  const effektiverModus = bearbeiten ? 'einzel' : modus
+
   const termine = useMemo(() => {
-    if (modus !== 'serie' || !wochentag) return []
+    if (effektiverModus !== 'serie' || !wochentag) return []
     const tag = WOCHENTAGE.find((w) => w.key === wochentag)
     if (!tag) return []
     return serienTermine(zeitraum?.[0], zeitraum?.[1], tag.dayjsTag)
-  }, [modus, wochentag, zeitraum])
+  }, [effektiverModus, wochentag, zeitraum])
 
   const schliessen = () => {
     form.resetFields()
@@ -66,13 +108,22 @@ export default function NeueMesseSheet({ open, onClose, locationList, onSpeicher
       ignoreWeekday: Boolean(werte.ignoreWeekday),
     }
 
-    const events =
-      modus === 'einzel'
-        ? [{ ...basis, dateBegin: werte.date.format('YYYY-MM-DD') }]
-        : termine.map((t) => ({ ...basis, dateBegin: t.format('YYYY-MM-DD') }))
-
     setSpeichert(true)
     try {
+      if (bearbeiten) {
+        const erfolg = await onAendern(messe.id, {
+          ...basis,
+          dateBegin: werte.date.format('YYYY-MM-DD'),
+        })
+        if (erfolg) schliessen()
+        return
+      }
+
+      const events =
+        effektiverModus === 'einzel'
+          ? [{ ...basis, dateBegin: werte.date.format('YYYY-MM-DD') }]
+          : termine.map((t) => ({ ...basis, dateBegin: t.format('YYYY-MM-DD') }))
+
       const erfolg = await onSpeichern(events)
       if (erfolg) schliessen()
     } finally {
@@ -80,40 +131,78 @@ export default function NeueMesseSheet({ open, onClose, locationList, onSpeicher
     }
   }
 
+  const loeschen = () => {
+    const eingeteilt = messe?.assignedUserIds?.length ?? 0
+
+    modal.confirm({
+      title: 'Messe löschen?',
+      // Die Zahl gehört in die Frage: eine Messe mit acht Einteilungen zu
+      // löschen ist etwas anderes als eine leere.
+      content:
+        eingeteilt === 0
+          ? `${messe.name} am ${dayjs(messe.dateBegin).format('DD.MM.YYYY')} wird gelöscht.`
+          : `${messe.name} am ${dayjs(messe.dateBegin).format('DD.MM.YYYY')} wird gelöscht. ` +
+            `${eingeteilt} ${eingeteilt === 1 ? 'Einteilung' : 'Einteilungen'} ` +
+            'werden mit entfernt.',
+      okText: 'Löschen',
+      okButtonProps: { danger: true },
+      cancelText: 'Abbrechen',
+      onOk: async () => {
+        const erfolg = await onLoeschen(messe.id)
+        if (erfolg) schliessen()
+      },
+    })
+  }
+
   const zuViele = termine.length >= MAX_SERIENTERMINE
-  const serieUnvollstaendig = modus === 'serie' && termine.length === 0
+  const serieUnvollstaendig = effektiverModus === 'serie' && termine.length === 0
 
   return (
     <Sheet
       open={open}
       onClose={schliessen}
-      title="Messe anlegen"
+      title={bearbeiten ? 'Messe bearbeiten' : 'Messe anlegen'}
       footer={
-        <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-          <Button onClick={schliessen}>Abbrechen</Button>
-          <Button
-            type="primary"
-            loading={speichert}
-            disabled={serieUnvollstaendig}
-            onClick={speichern}
-          >
-            {modus === 'einzel'
-              ? 'Anlegen'
-              : `${termine.length} Termine anlegen`}
-          </Button>
+        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+          {/* Löschen links und mit Abstand zum Speichern: der Knopf soll nicht
+              dort liegen, wo der Daumen ohnehin hinzielt. */}
+          {bearbeiten ? (
+            <Button danger onClick={loeschen}>
+              Löschen
+            </Button>
+          ) : (
+            <span />
+          )}
+          <Space>
+            <Button onClick={schliessen}>Abbrechen</Button>
+            <Button
+              type="primary"
+              loading={speichert}
+              disabled={serieUnvollstaendig}
+              onClick={speichern}
+            >
+              {bearbeiten
+                ? 'Speichern'
+                : effektiverModus === 'einzel'
+                  ? 'Anlegen'
+                  : `${termine.length} Termine anlegen`}
+            </Button>
+          </Space>
         </Space>
       }
     >
-      <Segmented
-        block
-        style={{ marginBottom: 16 }}
-        value={modus}
-        onChange={setModus}
-        options={[
-          { label: 'Einzelne Messe', value: 'einzel' },
-          { label: 'Serie', value: 'serie' },
-        ]}
-      />
+      {!bearbeiten && (
+        <Segmented
+          block
+          style={{ marginBottom: 16 }}
+          value={modus}
+          onChange={setModus}
+          options={[
+            { label: 'Einzelne Messe', value: 'einzel' },
+            { label: 'Serie', value: 'serie' },
+          ]}
+        />
+      )}
 
       <Form
         layout="vertical"
@@ -128,7 +217,7 @@ export default function NeueMesseSheet({ open, onClose, locationList, onSpeicher
           <Input placeholder="z. B. Vorabendmesse" />
         </Form.Item>
 
-        {modus === 'einzel' ? (
+        {effektiverModus === 'einzel' ? (
           <Form.Item
             label="Datum"
             name="date"
@@ -206,7 +295,7 @@ export default function NeueMesseSheet({ open, onClose, locationList, onSpeicher
 
       {/* Vorschau: angelegt wird genau diese Liste. Ohne sie waere eine
           falsch gesetzte Zeitraumgrenze erst nach dem Speichern zu sehen. */}
-      {modus === 'serie' && (
+      {effektiverModus === 'serie' && (
         <div style={{ marginTop: 8 }}>
           {termine.length === 0 ? (
             <Alert
