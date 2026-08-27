@@ -12,7 +12,9 @@ import {
 } from 'antd'
 import {
   LogoutOutlined,
+  MoonOutlined,
   SettingOutlined,
+  SunOutlined,
   UserOutlined,
 } from '@ant-design/icons'
 import { doGetRequestAuth, istTokenUngueltig } from '../helper/RequestHelper'
@@ -72,9 +74,29 @@ function FarbschemaWahl() {
         value={preference}
         onChange={setPreference}
         options={[
-          { label: 'Hell', value: 'light' },
-          { label: 'Dunkel', value: 'dark' },
-          { label: 'System', value: 'system' },
+          {
+            value: 'light',
+            // Sonne und Mond sind ohne Wort verstaendlich, "System" nicht -
+            // deshalb bleibt der dritte Punkt beschriftet.
+            //
+            // aria-label und title am Wrapper, aria-hidden am Symbol: sonst
+            // liest ein Screenreader den Namen des Icons ("sun") vor, und am
+            // PC gibt es keinen Hinweis, was das Symbol bedeutet.
+            label: (
+              <span role="img" aria-label="Helle Darstellung" title="Hell">
+                <SunOutlined aria-hidden style={{ fontSize: 16 }} />
+              </span>
+            ),
+          },
+          {
+            value: 'dark',
+            label: (
+              <span role="img" aria-label="Dunkle Darstellung" title="Dunkel">
+                <MoonOutlined aria-hidden style={{ fontSize: 16 }} />
+              </span>
+            ),
+          },
+          { value: 'system', label: 'System' },
         ]}
       />
     </div>
