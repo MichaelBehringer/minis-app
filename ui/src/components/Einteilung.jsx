@@ -129,6 +129,7 @@ export default function Einteilung({ token }) {
   // erscheint.
   const [laedtEvents, setLaedtEvents] = useState(true)
   const [locationList, setLocationList] = useState([])
+  const [namensvorschlaege, setNamensvorschlaege] = useState([])
   const [alleMinis, setAlleMinis] = useState([])
 
   const [neueMesseOffen, setNeueMesseOffen] = useState(false)
@@ -182,6 +183,11 @@ export default function Einteilung({ token }) {
     doGetRequestAuth('location', token)
       .then((res) => setLocationList(res.data || []))
       .catch(() => myToastError('Orte konnten nicht geladen werden'))
+    // Die bisher verwendeten Messenamen als Vorschlagsliste. Ein Fehler ist
+    // hier folgenlos - dann gibt es eben keine Vorschläge.
+    doGetRequestAuth('eventNames', token)
+      .then((res) => setNamensvorschlaege(res.data || []))
+      .catch(() => {})
   }, [token])
 
   // Erstes Laden. Der Zustand wird erst nach dem await gesetzt, nicht
@@ -408,6 +414,7 @@ export default function Einteilung({ token }) {
           setBearbeiteteMesse(null)
         }}
         locationList={locationList}
+        namensvorschlaege={namensvorschlaege}
         messe={bearbeiteteMesse}
         onSpeichern={speichereMessen}
         onAendern={aendereMesse}

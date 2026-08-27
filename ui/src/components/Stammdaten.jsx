@@ -8,6 +8,7 @@ import {
   Space,
   Spin,
   Table,
+  Tabs,
   Tag,
   Typography,
 } from 'antd'
@@ -16,6 +17,7 @@ import { doGetRequestAuth } from '../helper/RequestHelper'
 import { myToastError } from '../helper/ToastHelper'
 import useIsMobile from '../hooks/useIsMobile'
 import NeuerMiniSheet from './NeuerMiniSheet'
+import Orte from './Orte'
 
 // Namen der Rollen kommen aus der Datenbank. Vorher stand in der Tabelle die
 // rohe Zahl, ohne dass irgendwo stand, was sie bedeutet.
@@ -163,15 +165,13 @@ export default function Stammdaten({ token, onEditUser, editorRoleId, aktualisie
     },
   ]
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-        <Spin size="large" />
-      </div>
-    )
-  }
-
-  return (
+  // Der Ladezustand gilt nur fuer die Ministrantenliste - die Orte im zweiten
+  // Reiter laden fuer sich.
+  const ministranten = loading ? (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+      <Spin size="large" />
+    </div>
+  ) : (
     <div>
       <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 12 }}>
         <Button
@@ -235,5 +235,21 @@ export default function Stammdaten({ token, onEditUser, editorRoleId, aktualisie
         editorRoleId={editorRoleId}
       />
     </div>
+  )
+
+  return (
+    <Tabs
+      items={[
+        { key: 'minis', label: 'Ministranten', children: ministranten },
+        {
+          key: 'orte',
+          label: 'Orte',
+          // Orte sind Stammdaten wie die Ministranten und gehoeren deshalb
+          // hierher. Bisher waren sie nur lesbar - ein Ort mit leerem Namen
+          // war nur in der Datenbank zu beheben.
+          children: <Orte token={token} />,
+        },
+      ]}
+    />
   )
 }

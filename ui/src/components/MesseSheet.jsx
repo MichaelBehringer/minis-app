@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   App as AntApp,
+  AutoComplete,
   Button,
   Checkbox,
   DatePicker,
   Form,
-  Input,
   InputNumber,
   Segmented,
   Select,
@@ -41,6 +41,7 @@ export default function MesseSheet({
   onAendern,
   onLoeschen,
   messe,
+  namensvorschlaege = [],
 }) {
   const bearbeiten = Boolean(messe)
   const [modus, setModus] = useState('einzel')
@@ -214,7 +215,17 @@ export default function MesseSheet({
           name="name"
           rules={[{ required: true, message: 'Bitte einen Namen eingeben' }]}
         >
-          <Input placeholder="z. B. Vorabendmesse" />
+          {/* Vorschlagsliste aus den bisher verwendeten Namen, die häufigsten
+              zuerst - Freitext bleibt möglich. Im Bestand stehen 46
+              verschiedene Werte bei 122 Messen, darunter "Sontagsmesse"
+              achtmal neben "Sonntagsmesse". */}
+          <AutoComplete
+            placeholder="z. B. Vorabendmesse"
+            options={namensvorschlaege.map((n) => ({ value: n }))}
+            filterOption={(eingabe, option) =>
+              option.value.toLowerCase().includes(eingabe.toLowerCase())
+            }
+          />
         </Form.Item>
 
         {effektiverModus === 'einzel' ? (

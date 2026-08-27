@@ -327,6 +327,107 @@ func GetLocations() ([]Location, error) {
 	return list, results.Err()
 }
 
+// GetEventNames liefert die bisher verwendeten Messenamen, die haeufigsten
+// zuerst.
+//
+// Der Name ist Freitext, und das ist im Bestand sichtbar auseinandergelaufen:
+// 46 verschiedene Werte bei 122 Messen, darunter "Sontagsmesse" achtmal neben
+// "Sonntagsmesse" vierundzwanzigmal. Derselbe Termintyp, zwei Schreibweisen,
+// und im PDF steht es so, wie es eingetippt wurde. Eine Vorschlagsliste haelt
+// das Muster, ohne Freitext zu verbieten.
+func GetEventNames() ([]string, error) {
+	results, err := ExecuteSQL(`
+		SELECT name
+		FROM event
+		WHERE name IS NOT NULL AND TRIM(name) <> ''
+		GROUP BY name
+		ORDER BY COUNT(*) DESC, name
+		LIMIT 40`)
+	if err != nil {
+		return nil, err
+	}
+	defer results.Close()
+
+	namen := []string{}
+	for results.Next() {
+		var n string
+		if err := results.Scan(&n); err != nil {
+			return nil, err
+		}
+		namen = append(namen, n)
+	}
+	return namen, results.Err()
+}
+
+// ErrOrtNichtGefunden meldet eine Id, zu der es keinen Ort gibt.
+var ErrOrtNichtGefunden = errors.New("Diesen Ort gibt es nicht")
+
+// ErrOrtInBenutzung meldet einen Ort, an dem noch Messen haengen.
+var ErrOrtInBenutzung = errors.New("An diesem Ort hängen noch Messen")
+
+func CreateLocation(name string) (int, error) {
+	res, err := ExecuteDDL("INSERT INTO location (name) VALUES (?)", name)
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return int(id), nil
+}
+
+func UpdateLocation(locationId string, name string) error {
+	res, err := ExecuteDDL("UPDATE location SET name = ? WHERE id = ?", name, locationId)
+	if err != nil {
+		return err
+	}
+	// RowsAffected ist auch 0, wenn der Name gleich geblieben ist - deshalb
+	// getrennt nachsehen, ob es den Ort gibt.
+	betroffen, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if betroffen == 0 {
+		var vorhanden int
+		if err := ExecuteSQLRow("SELECT COUNT(*) FROM location WHERE id = ?", locationId).Scan(&vorhanden); err != nil {
+			return err
+		}
+		if vorhanden == 0 {
+			return ErrOrtNichtGefunden
+		}
+	}
+	return nil
+}
+
+// DeleteLocation loescht einen Ort, an dem keine Messe haengt.
+//
+// Bewusst mit eigener Pruefung statt den Fremdschluessel laufen zu lassen: der
+// wuerde denselben Fall als Datenbankfehler melden, und der Nutzer bekaeme
+// "Fehler beim Loeschen" statt "daran haengen noch 113 Messen".
+func DeleteLocation(locationId string) error {
+	var messen int
+	if err := ExecuteSQLRow("SELECT COUNT(*) FROM event WHERE location_id = ?", locationId).Scan(&messen); err != nil {
+		return err
+	}
+	if messen > 0 {
+		return fmt.Errorf("%w (%d)", ErrOrtInBenutzung, messen)
+	}
+
+	res, err := ExecuteDDL("DELETE FROM location WHERE id = ?", locationId)
+	if err != nil {
+		return err
+	}
+	betroffen, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if betroffen == 0 {
+		return ErrOrtNichtGefunden
+	}
+	return nil
+}
+
 func getAssignedUsers(eventId int) ([]int, error) {
 	rows, err := ExecuteSQL("SELECT user_id FROM plan WHERE event_id = ?", eventId)
 	if err != nil {

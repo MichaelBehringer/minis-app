@@ -70,6 +70,13 @@ func main() {
 	auth.PUT("/events", AllowMinRole(2), putEvents)
 
 	auth.GET("/location", getLocations)
+	// Orte waren bisher nur lesbar. In den Daten heisst location 5 ' ' - ein
+	// Leerzeichen - und erscheint als leerer Eintrag in der Auswahl.
+	auth.POST("/location", AllowMinRole(2), createLocation)
+	auth.PATCH("/location/:locationId", AllowMinRole(2), patchLocation)
+	auth.DELETE("/location/:locationId", AllowMinRole(2), deleteLocation)
+	// Die bisher verwendeten Messenamen, fuer die Vorschlagsliste beim Anlegen.
+	auth.GET("/eventNames", AllowMinRole(2), getEventNames)
 	auth.GET("/role", AllowMinRole(2), getRoles)
 
 	// Bleibt fuer alle Angemeldeten lesbar: die Liste dient der Auswahl der
@@ -252,6 +259,86 @@ func getLocations(c *gin.Context) {
 		return
 	}
 	c.IndentedJSON(http.StatusOK, locations)
+}
+
+func createLocation(c *gin.Context) {
+	name, ok := ortsnameAusAnfrage(c)
+	if !ok {
+		return
+	}
+
+	id, err := CreateLocation(name)
+	if err != nil {
+		serverFehler(c, "Ort anlegen", err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"id": id})
+}
+
+func patchLocation(c *gin.Context) {
+	name, ok := ortsnameAusAnfrage(c)
+	if !ok {
+		return
+	}
+
+	err := UpdateLocation(c.Param("locationId"), name)
+	if errors.Is(err, ErrOrtNichtGefunden) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Ort speichern", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "updated"})
+}
+
+func deleteLocation(c *gin.Context) {
+	err := DeleteLocation(c.Param("locationId"))
+	if errors.Is(err, ErrOrtNichtGefunden) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if errors.Is(err, ErrOrtInBenutzung) {
+		// 409, nicht 500: die Anfrage war in Ordnung, der Ort ist belegt - und
+		// die Zahl der Messen steht in der Meldung.
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Ort loeschen", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+}
+
+// Ein Ortsname ohne Inhalt ist genau der Fall, der in den Daten steht:
+// location 5 heisst ' '. TrimSpace und die Pruefung verhindern die
+// Wiederholung.
+func ortsnameAusAnfrage(c *gin.Context) (string, bool) {
+	var payload struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ungueltige Anfrage"})
+		return "", false
+	}
+
+	name := strings.TrimSpace(payload.Name)
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Der Name darf nicht leer sein"})
+		return "", false
+	}
+	return name, true
+}
+
+func getEventNames(c *gin.Context) {
+	namen, err := GetEventNames()
+	if err != nil {
+		serverFehler(c, "Messenamen laden", err)
+		return
+	}
+	c.JSON(http.StatusOK, namen)
 }
 
 func getRoles(c *gin.Context) {
