@@ -103,6 +103,30 @@ func AllowSelfOrMinRole(minRole int) gin.HandlerFunc {
 	}
 }
 
+// AllowSelfOnly laesst nur den Zugriff auf die eigene userId durch - auch ein
+// Admin kommt hier nicht an fremde Daten.
+//
+// Gebraucht fuer den Kalender-Link: der ist ein Zugangsmittel, kein Datum. Wer
+// ihn hat, sieht die Einsaetze dieser Person ohne Anmeldung. Ein Planer darf
+// alles ueber einen Ministranten wissen, aber nicht dessen Zugang in die Hand
+// bekommen.
+func AllowSelfOnly() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userId, ok := ClaimZahl(c, "userId")
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+
+		if strconv.Itoa(userId) != c.Param("userId") {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
+			return
+		}
+
+		c.Next()
+	}
+}
+
 // AllowMinRole laesst den Zugriff nur ab der Rolle minRole durch.
 func AllowMinRole(minRole int) gin.HandlerFunc {
 	return func(c *gin.Context) {

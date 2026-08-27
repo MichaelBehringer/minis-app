@@ -202,6 +202,7 @@ mariadb minis < server/migrations/001_unique_indizes.sql
 
 ```bash
 mariadb minis < server/migrations/002_kontaktdaten.sql
+mariadb minis < server/migrations/003_kalender_token.sql
 ```
 
 `001` legt UNIQUE-Indizes auf `ban`, `user_weekday` und `preference_together`.
@@ -215,6 +216,37 @@ Notiz des Ministrantenrats und wird einem Ministranten weder ausgeliefert noch
 von ihm angenommen. In `/userHead` — die Liste, die jeder Angemeldete für die
 Wunschpartner-Auswahl lesen darf — und im PDF-Plan erscheinen die Spalten
 nicht.
+
+## Kalender-Abo
+
+Jeder kann sich unter „Meine Einstellungen → Kalender" einen persönlichen Link
+erzeugen und im Handy-Kalender abonnieren. Danach stehen die eigenen Einsätze im
+Familienkalender — mit der Erinnerung, die der Kalender ohnehin kann, und
+sichtbar auch für die Eltern, ohne dass die die App installieren müssen.
+
+```
+https://ministranten.dynv6.net:33333/server/ical/<token>
+```
+
+Drei Punkte, an denen so etwas sonst schiefgeht:
+
+- **Der Link ist ein Zugangsmittel, kein Datum.** Wer ihn hat, sieht die
+  Einsätze dieser Person ohne Anmeldung. Deshalb ist es ein eigener
+  Zufallswert (`user.calendar_token`) und nicht das JWT der Anwendung, deshalb
+  liest und schreibt ihn **nur die Person selbst** — auch ein Admin bekommt
+  einen fremden Link nicht (`AllowSelfOnly`) —, und deshalb lässt er sich neu
+  erzeugen: damit ist der alte sofort wertlos.
+- **Stabile `UID` je Termin**, gebildet aus der Id der Messe. Ohne sie legt der
+  Kalender bei jeder Aktualisierung neue Termine an, statt die vorhandenen zu
+  ändern.
+- **Zeiten in UTC.** Die Datenbank speichert lokale Zeit ohne Zone; ausgegeben
+  wird `DTSTART:…Z`. Das erspart einen `VTIMEZONE`-Block, den jeder Client
+  anders auslegt. Damit die Umrechnung auf dem distroless-Image funktioniert,
+  bindet `main.go` `time/tzdata` ein — dort gibt es kein
+  `/usr/share/zoneinfo`.
+
+Die Dauer einer Messe ist mit einer Stunde angenommen; die Datenbank kennt nur
+den Beginn.
 
 ## Entwicklung
 

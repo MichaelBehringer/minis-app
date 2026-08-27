@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	. "minisAPI/controller"
 	. "minisAPI/middleware"
@@ -14,6 +15,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	// Die Zeitzonendateien in die Binaerdatei einbinden. Das distroless-Image
+	// hat kein /usr/share/zoneinfo - ohne das koennte der Kalender die lokale
+	// Zeit einer Messe nicht nach UTC umrechnen.
+	_ "time/tzdata"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -49,6 +54,12 @@ func main() {
 
 	router.Use(cors.New(config))
 	router.POST("/login", login)
+
+	// Das Kalender-Abo laeuft ohne Anmeldung: ein Kalenderprogramm ruft die
+	// Adresse immer wieder ab und kann keinen Authorization-Kopf setzen. Der
+	// Token in der Adresse ist deshalb ein eigener, jederzeit neu erzeugbarer
+	// Wert und nicht das JWT der Anwendung.
+	router.GET("/ical/:token", getKalender)
 
 	auth := router.Group("/")
 	auth.Use(AuthUser())
@@ -111,6 +122,14 @@ func main() {
 	auth.PATCH("/user/:userId/preferred", AllowSelfOrMinRole(2), updateUserPreferred)
 	auth.GET("/user/:userId/preferred", AllowSelfOrMinRole(2), getUserPreferred)
 	auth.GET("/event/:eventId/assignment-options", AllowMinRole(2), getEventAssignmentOptions)
+	// Ein einzelner Termin als Kalenderdatei, fuer die, die nichts abonnieren
+	// wollen. Derselbe Inhalt wie im Gesamtplan, also fuer alle Angemeldeten.
+	auth.GET("/event/:eventId/ics", getTerminKalender)
+
+	// Der persoenliche Kalender-Link. Nur fuer die eigene Id, auch fuer einen
+	// Admin nicht fremd - siehe AllowSelfOnly.
+	auth.GET("/user/:userId/calendar", AllowSelfOnly(), getKalenderLink)
+	auth.POST("/user/:userId/calendar", AllowSelfOnly(), postKalenderLink)
 
 	starteServer(router)
 }
@@ -785,4 +804,73 @@ func getEventAssignmentOptions(c *gin.Context) {
 	}
 
 	c.IndentedJSON(http.StatusOK, options)
+}
+
+// --- Kalender -----------------------------------------------------------------
+
+func getKalender(c *gin.Context) {
+	ics, err := KalenderFuerBenutzer(c.Param("token"))
+	if errors.Is(err, ErrKalenderTokenUnbekannt) {
+		// 404 und kein 401: hier gibt es keine Anmeldung, an der etwas
+		// scheitern koennte.
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Kalender erzeugen", err)
+		return
+	}
+
+	kalenderAusliefern(c, "ministrieren.ics", ics)
+}
+
+func getTerminKalender(c *gin.Context) {
+	ev, ics, err := KalenderFuerTermin(c.Param("eventId"))
+	if errors.Is(err, ErrMesseNichtGefunden) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Termin erzeugen", err)
+		return
+	}
+
+	kalenderAusliefern(c, fmt.Sprintf("messe-%s.ics", ev.DateBegin), ics)
+}
+
+func kalenderAusliefern(c *gin.Context, dateiname string, ics string) {
+	c.Header("Content-Type", "text/calendar; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=%q", dateiname))
+	// Ein Kalender-Abo soll den neuen Stand sehen, nicht den aus dem Cache.
+	c.Header("Cache-Control", "no-cache")
+	c.String(http.StatusOK, ics)
+}
+
+func getKalenderLink(c *gin.Context) {
+	token, err := KalenderToken(c.Param("userId"))
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Diesen Ministranten gibt es nicht"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Kalender-Link laden", err)
+		return
+	}
+
+	// Leer heisst: noch kein Abo eingerichtet. Kein Fehler.
+	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
+func postKalenderLink(c *gin.Context) {
+	token, err := NeuerKalenderToken(c.Param("userId"))
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Diesen Ministranten gibt es nicht"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Kalender-Link erzeugen", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"token": token})
 }

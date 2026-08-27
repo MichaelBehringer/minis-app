@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import {
+  Button,
   Card,
   Empty,
   Segmented,
@@ -10,12 +11,13 @@ import {
   theme,
 } from 'antd'
 import {
+  CalendarOutlined,
   ClockCircleOutlined,
   EnvironmentOutlined,
   TeamOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { doGetRequestAuth } from '../helper/RequestHelper'
+import { doGetRequestAuth, doGetRequestBlobAuth } from '../helper/RequestHelper'
 import { myToastError } from '../helper/ToastHelper'
 import Sheet from './Sheet'
 
@@ -48,7 +50,7 @@ function tagText(dateBegin) {
 
 // Karte eines Einsatzes. Hervorgehoben, wenn es der naechste ist - die
 // eigentliche Frage auf dieser Seite ist "wann bin ich das naechste Mal dran".
-function EinsatzKarte({ ev, hervorgehoben, eigenerName }) {
+function EinsatzKarte({ ev, hervorgehoben, eigenerName, onKalender }) {
   const { token } = theme.useToken()
 
   // Die eigene Person aus der Liste nehmen - dass man selbst eingeteilt ist,
@@ -99,6 +101,20 @@ function EinsatzKarte({ ev, hervorgehoben, eigenerName }) {
             </div>
           </div>
         )}
+
+        {/* Einen einzelnen Termin in den Kalender legen, ohne das ganze Abo.
+            Der Serverpfad erzeugt die Datei - dieselbe Formatierung wie beim
+            Abo, statt sie hier ein zweites Mal zu bauen. */}
+        {onKalender && (
+          <Button
+            size="small"
+            icon={<CalendarOutlined aria-hidden />}
+            onClick={() => onKalender(ev)}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            Zum Kalender hinzufügen
+          </Button>
+        )}
       </Space>
     </Card>
   )
@@ -109,6 +125,22 @@ export default function Home({ userId, token }) {
   const [eigenerName, setEigenerName] = useState('')
   const [loading, setLoading] = useState(true)
   const [ansicht, setAnsicht] = useState('liste')
+
+  // Einen einzelnen Termin als Kalenderdatei. Als Blob mit Token, weil der
+  // Endpunkt angemeldet ist - ein einfacher Link kann keinen Kopf setzen.
+  const inKalender = async (ev) => {
+    try {
+      const res = await doGetRequestBlobAuth(`event/${ev.id}/ics`, token)
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `messe-${ev.dateBegin}.ics`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      myToastError('Termin konnte nicht erzeugt werden')
+    }
+  }
   const [zeigeVergangene, setZeigeVergangene] = useState(false)
   const [tagesEvents, setTagesEvents] = useState([])
   const [sheetOffen, setSheetOffen] = useState(false)
@@ -207,6 +239,7 @@ export default function Home({ userId, token }) {
                 ev={ev}
                 eigenerName={eigenerName}
                 hervorgehoben={!zeigeVergangene && i === 0}
+                onKalender={inKalender}
               />
             ))
           )}
@@ -244,7 +277,12 @@ export default function Home({ userId, token }) {
         }
       >
         {tagesEvents.map((ev) => (
-          <EinsatzKarte key={ev.id} ev={ev} eigenerName={eigenerName} />
+          <EinsatzKarte
+            key={ev.id}
+            ev={ev}
+            eigenerName={eigenerName}
+            onKalender={inKalender}
+          />
         ))}
       </Sheet>
     </div>

@@ -10,6 +10,7 @@ import UserPasswordModal from './UserPasswordModal'
 import UserBanDates from './UserBanDates'
 import UserPreferredWeekdays from './UserPreferredWeekdays'
 import UserPreferredPartners from './UserPreferredPartners'
+import KalenderAbo from './KalenderAbo'
 
 // Bearbeiten eines Ministranten - eigenes Konto oder, als Planer, ein fremdes.
 //
@@ -156,6 +157,19 @@ export default function UserEditModal({
                 label: 'Wunschpartner',
                 children: <UserPreferredPartners userId={userId} token={token} />,
               },
+              // Nur beim eigenen Konto: der Kalender-Link ist ein
+              // Zugangsmittel. Ein Planer darf alles ueber einen Ministranten
+              // wissen, aber nicht dessen Zugang in die Hand bekommen - der
+              // Server lehnt den Aufruf fuer eine fremde Id ohnehin ab.
+              ...(eigenesKonto
+                ? [
+                    {
+                      key: 'calendar',
+                      label: 'Kalender',
+                      children: <KalenderAbo userId={userId} token={token} />,
+                    },
+                  ]
+                : []),
             ]}
           />
         )}
