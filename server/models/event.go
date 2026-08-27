@@ -40,6 +40,16 @@ type SingleBanDateUpdate struct {
 	Add  bool   `json:"add"`
 }
 
+// BanRangeUpdate sperrt oder gibt einen ganzen Zeitraum frei.
+//
+// Nur die Grenzen werden uebertragen, nicht die einzelnen Tage: der Server
+// rechnet sie aus. Zwei Wochen Urlaub sind damit eine Anfrage statt vierzehn.
+type BanRangeUpdate struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Add  bool   `json:"add"`
+}
+
 type SingleWeekdayUpdate struct {
 	Weekday string `json:"weekday"`
 	Add     bool   `json:"add"`

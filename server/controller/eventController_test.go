@@ -3,6 +3,7 @@ package controller
 import (
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-sql-driver/mysql"
@@ -107,4 +108,62 @@ func TestGetWeekdayKeys(t *testing.T) {
 	if _, err := getWeekdayKeys("kein-datum"); err == nil {
 		t.Error("unlesbares Datum ergab keinen Fehler")
 	}
+}
+
+func TestZeitraumGrenzen(t *testing.T) {
+	t.Run("normale Reihenfolge", func(t *testing.T) {
+		a, b, err := zeitraumGrenzen("2026-08-01", "2026-08-15")
+		if err != nil {
+			t.Fatalf("unerwarteter Fehler: %v", err)
+		}
+		if a.Format("2006-01-02") != "2026-08-01" || b.Format("2006-01-02") != "2026-08-15" {
+			t.Errorf("%v bis %v", a, b)
+		}
+	})
+
+	t.Run("vertauschte Grenzen werden still korrigiert", func(t *testing.T) {
+		// Wer im Kalender erst das Ende und dann den Anfang antippt, meint
+		// denselben Zeitraum - das ist keine Fehlermeldung wert.
+		a, b, err := zeitraumGrenzen("2026-08-15", "2026-08-01")
+		if err != nil {
+			t.Fatalf("unerwarteter Fehler: %v", err)
+		}
+		if a.Format("2006-01-02") != "2026-08-01" || b.Format("2006-01-02") != "2026-08-15" {
+			t.Errorf("%v bis %v", a, b)
+		}
+	})
+
+	t.Run("ein einzelner Tag ist erlaubt", func(t *testing.T) {
+		if _, _, err := zeitraumGrenzen("2026-08-01", "2026-08-01"); err != nil {
+			t.Errorf("unerwarteter Fehler: %v", err)
+		}
+	})
+
+	t.Run("genau ein Jahr geht noch", func(t *testing.T) {
+		// 2026 ist kein Schaltjahr: 01.01. bis 31.12. sind 365 Tage.
+		if _, _, err := zeitraumGrenzen("2026-01-01", "2026-12-31"); err != nil {
+			t.Errorf("unerwarteter Fehler: %v", err)
+		}
+	})
+
+	t.Run("zu grosser Zeitraum wird abgewiesen", func(t *testing.T) {
+		// Schutz gegen einen Tippfehler im Jahr - sonst wuerden tausende Tage
+		// gesperrt, die von Hand wieder weg muessten.
+		_, _, err := zeitraumGrenzen("2026-01-01", "2030-01-01")
+		if err == nil {
+			t.Fatal("kein Fehler bei vier Jahren")
+		}
+		if !strings.Contains(err.Error(), "erlaubt sind") {
+			t.Errorf("Meldung nennt die Grenze nicht: %v", err)
+		}
+	})
+
+	t.Run("unlesbares Datum", func(t *testing.T) {
+		if _, _, err := zeitraumGrenzen("kein-datum", "2026-08-01"); err == nil {
+			t.Error("Startdatum: kein Fehler")
+		}
+		if _, _, err := zeitraumGrenzen("2026-08-01", ""); err == nil {
+			t.Error("Enddatum: kein Fehler")
+		}
+	})
 }

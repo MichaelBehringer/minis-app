@@ -1,6 +1,7 @@
 import {
   CalendarOutlined,
   ScheduleOutlined,
+  StopOutlined,
   TeamOutlined,
 } from '@ant-design/icons'
 
@@ -17,6 +18,16 @@ const NAV_ITEMS = [
     label: 'Meine Einsätze',
     labelShort: 'Einsätze',
     icon: CalendarOutlined,
+    minRole: 1,
+  },
+  {
+    // Neben "wann bin ich dran" die eigentliche Aufgabe eines Ministranten.
+    // Steckt zwar auch im Bearbeiten-Sheet, aber dorthin kommt man nur ueber
+    // das Profilmenue.
+    path: '/sperrtage',
+    label: 'Meine Sperrtage',
+    labelShort: 'Sperrtage',
+    icon: StopOutlined,
     minRole: 1,
   },
   {

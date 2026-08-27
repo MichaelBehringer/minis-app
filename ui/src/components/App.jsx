@@ -19,7 +19,7 @@ import { doGetRequestAuth } from '../helper/RequestHelper'
 import { myToastError } from '../helper/ToastHelper'
 import { useColorSchemeSetting } from '../colorScheme'
 import useIsMobile from '../hooks/useIsMobile'
-import { istPlaner } from '../navigation'
+import { istPlaner, navItemsFor } from '../navigation'
 import AppNav, { BOTTOM_NAV_HEIGHT, SIDER_WIDTH } from './AppNav'
 import Home from './Home'
 
@@ -31,6 +31,10 @@ const Einteilung = lazy(() => import('./Einteilung'))
 // Ebenso der Bearbeiten-Bereich: vier Reiter mit Formular, Kalender und
 // Auswahllisten, die erst beim Oeffnen gebraucht werden.
 const UserEditModal = lazy(() => import('./UserEditModal'))
+
+// Die Sperrtage bringen antds Calendar mit - dieselbe Datumsmaschinerie, die
+// auch die Kalenderansicht der Startseite nachlaedt.
+const Sperrtage = lazy(() => import('./Sperrtage'))
 
 const { Content, Header } = Layout
 
@@ -135,7 +139,10 @@ function App(props) {
     return <Ladeanzeige text="Anmeldedaten werden geprüft" />
   }
 
-  const mehrAlsEinMenuepunkt = istPlaner(roleId)
+  // Die Bottom-Navigation erscheint ab zwei Punkten. Seit die Sperrtage
+  // dazugehoeren, ist das fuer jede Rolle der Fall - der Inhalt braucht also
+  // immer Platz darunter.
+  const mehrAlsEinMenuepunkt = navItemsFor(roleId).length >= 2
 
   return (
     <Layout style={{ minHeight: '100dvh' }}>
@@ -201,6 +208,10 @@ function App(props) {
               <Route
                 path="/"
                 element={<Home userId={userId} token={props.token} />}
+              />
+              <Route
+                path="/sperrtage"
+                element={<Sperrtage userId={userId} token={props.token} />}
               />
               {istPlaner(roleId) && (
                 <>

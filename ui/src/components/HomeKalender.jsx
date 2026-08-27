@@ -1,5 +1,6 @@
 import { Badge, Calendar, Card } from 'antd'
 import useIsMobile from '../hooks/useIsMobile'
+import KalenderKopf from './KalenderKopf'
 
 // Die Kalenderansicht der Startseite, bewusst in einer eigenen Datei.
 //
@@ -27,6 +28,11 @@ export default function HomeKalender({ eventsAmTag, onTagWaehlen }) {
         // Am Handy die kompakte Form: ein Monatsraster in voller Breite ist
         // auf 390px gequetscht.
         fullscreen={!isMobile}
+        // Eigene Kopfzeile statt der eingebauten: deren Auswahlfelder fuer
+        // Jahr und Monat brachen in der schmalen Karte untereinander um.
+        headerRender={({ value, onChange }) => (
+          <KalenderKopf value={value} onChange={onChange} />
+        )}
         cellRender={zelleRendern}
         onSelect={(datum, info) => {
           if (info?.source === 'date') onTagWaehlen(datum)

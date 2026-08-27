@@ -33,12 +33,7 @@ export default function UserGeneralForm({
         />
       </Form.Item>
 
-      <Form.Item
-        label="Weihrauch"
-        name="incense"
-        valuePropName="checked"
-        extra="Darf das Weihrauchfass tragen"
-      >
+      <Form.Item label="Weihrauch" name="incense" valuePropName="checked">
         <Switch aria-label="Weihrauch" />
       </Form.Item>
 

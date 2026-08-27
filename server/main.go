@@ -72,6 +72,9 @@ func main() {
 	auth.PATCH("/user/:userId/password", AllowSelfOrMinRole(2), updateUserPassword)
 	auth.GET("/user/:userId/ban", AllowSelfOrMinRole(2), getUserBanDates)
 	auth.PATCH("/user/:userId/ban", AllowSelfOrMinRole(2), updateUserBanDates)
+	// Ganzer Zeitraum auf einmal. Zwei Wochen Urlaub sind damit eine Anfrage
+	// statt vierzehn.
+	auth.PATCH("/user/:userId/ban/range", AllowSelfOrMinRole(2), updateUserBanRange)
 	auth.GET("/user/:userId/weekday", AllowSelfOrMinRole(2), getUserWeekdays)
 	auth.PATCH("/user/:userId/weekday", AllowSelfOrMinRole(2), updateUserWeekday)
 	auth.PATCH("/user/:userId/preferred", AllowSelfOrMinRole(2), updateUserPreferred)
@@ -395,6 +398,34 @@ func updateUserBanDates(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func updateUserBanRange(c *gin.Context) {
+	userId := c.Param("userId")
+
+	var update BanRangeUpdate
+	if err := c.ShouldBindJSON(&update); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+
+	var anzahl int
+	var err error
+	if update.Add {
+		anzahl, err = AddBlockDates(userId, update.From, update.To)
+	} else {
+		anzahl, err = RemoveBlockDates(userId, update.From, update.To)
+	}
+
+	if err != nil {
+		// Ein unlesbares Datum oder ein zu grosser Zeitraum ist ein Fehler der
+		// Anfrage, kein Serverfehler - und der Grund ist fuer den Nutzer
+		// verwertbar ("Zeitraum umfasst 400 Tage").
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "count": anzahl})
 }
 
 func getUserWeekdays(c *gin.Context) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	. "minisAPI/models"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -292,6 +293,99 @@ func AddBlockDate(userId string, date string) error {
 func RemoveBlockDate(userId string, date string) error {
 	_, err := ExecuteDDL("DELETE FROM ban WHERE user_id = ? AND ban_date = ?", userId, date)
 	return err
+}
+
+// Obergrenze fuer einen Zeitraum. Ein Jahr deckt jeden sinnvollen Fall ab und
+// begrenzt gleichzeitig, was ein Tippfehler im Datum anrichten kann.
+const maxTageJeZeitraum = 366
+
+// zeitraumGrenzen prueft die beiden Datumsangaben und bringt sie in die
+// richtige Reihenfolge.
+//
+// Vertauschte Grenzen werden still korrigiert: wer im Kalender erst das Ende
+// und dann den Anfang antippt, meint denselben Zeitraum.
+func zeitraumGrenzen(von string, bis string) (time.Time, time.Time, error) {
+	// Bewusst ohne %w um den Fehler von time.Parse: dessen Text nennt das
+	// interne Layout ("as \"2006\"") und landet ueber den Handler beim Nutzer.
+	a, err := time.Parse("2006-01-02", von)
+	if err != nil {
+		return time.Time{}, time.Time{}, errors.New("Startdatum nicht lesbar")
+	}
+	b, err := time.Parse("2006-01-02", bis)
+	if err != nil {
+		return time.Time{}, time.Time{}, errors.New("Enddatum nicht lesbar")
+	}
+	if b.Before(a) {
+		a, b = b, a
+	}
+
+	// +1, weil beide Randtage dazugehoeren.
+	tage := int(b.Sub(a).Hours()/24) + 1
+	if tage > maxTageJeZeitraum {
+		return time.Time{}, time.Time{}, fmt.Errorf("Zeitraum umfasst %d Tage, erlaubt sind %d", tage, maxTageJeZeitraum)
+	}
+
+	return a, b, nil
+}
+
+// AddBlockDates sperrt alle Tage eines Zeitraums und gibt zurueck, wie viele
+// neu dazugekommen sind.
+func AddBlockDates(userId string, von string, bis string) (int, error) {
+	a, b, err := zeitraumGrenzen(von, bis)
+	if err != nil {
+		return 0, err
+	}
+
+	// Ein INSERT mit mehreren Wertezeilen statt einer Anweisung je Tag.
+	//
+	// INSERT IGNORE, weil bereits gesperrte Tage kein Fehler sind: der
+	// UNIQUE-Index auf (user_id, ban_date) wuerde sonst beim ersten schon
+	// vorhandenen Tag abbrechen und den Rest des Zeitraums nicht mehr
+	// eintragen.
+	platzhalter := []string{}
+	args := []interface{}{}
+	for t := a; !t.After(b); t = t.AddDate(0, 0, 1) {
+		platzhalter = append(platzhalter, "(?, ?)")
+		args = append(args, userId, t.Format("2006-01-02"))
+	}
+
+	result, err := ExecuteDDL(
+		"INSERT IGNORE INTO ban (user_id, ban_date) VALUES "+strings.Join(platzhalter, ", "),
+		args...,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	neu, err := result.RowsAffected()
+	if err != nil {
+		// Die Tage sind gesetzt, nur die Anzahl ist unbekannt. Kein Fehler,
+		// den der Nutzer sehen muesste.
+		return 0, nil
+	}
+	return int(neu), nil
+}
+
+// RemoveBlockDates gibt alle Tage eines Zeitraums wieder frei.
+func RemoveBlockDates(userId string, von string, bis string) (int, error) {
+	a, b, err := zeitraumGrenzen(von, bis)
+	if err != nil {
+		return 0, err
+	}
+
+	result, err := ExecuteDDL(
+		"DELETE FROM ban WHERE user_id = ? AND ban_date BETWEEN ? AND ?",
+		userId, a.Format("2006-01-02"), b.Format("2006-01-02"),
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	entfernt, err := result.RowsAffected()
+	if err != nil {
+		return 0, nil
+	}
+	return int(entfernt), nil
 }
 
 func GetUserWeekdays(userId string) ([]string, error) {
