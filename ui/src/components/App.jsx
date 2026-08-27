@@ -138,6 +138,20 @@ function App(props) {
         danger: true,
         onClick: props.removeToken,
       },
+      { type: 'divider' },
+      {
+        // Die Versionsnummer stand bisher nur im Build (__APP_VERSION__ aus
+        // vite.config.js) und war nirgends zu sehen. Sichtbar ist sie die
+        // Antwort auf "ist das Update angekommen?" - gerade bei einer App, die
+        // vom Startbildschirm gestartet wird.
+        key: 'version',
+        disabled: true,
+        label: (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            Version {__APP_VERSION__}
+          </Typography.Text>
+        ),
+      },
     ],
   }
 
