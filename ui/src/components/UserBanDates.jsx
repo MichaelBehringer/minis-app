@@ -3,7 +3,6 @@ import {
   Alert,
   Button,
   Calendar,
-  DatePicker,
   Segmented,
   Space,
   Spin,
@@ -16,8 +15,7 @@ import dayjs from 'dayjs'
 import { myToastError, myToastSuccess } from '../helper/ToastHelper'
 import { doGetRequestAuth, doPatchRequestAuth } from '../helper/RequestHelper'
 import KalenderKopf from './KalenderKopf'
-
-const { RangePicker } = DatePicker
+import ZeitraumWahl from './ZeitraumWahl'
 
 const iso = (d) => d.format('YYYY-MM-DD')
 
@@ -191,12 +189,7 @@ export default function UserBanDates({ userId, token }) {
           fuer Tag anzutippen waere die eigentliche Arbeit. */}
       <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 14 }}>
         <Typography.Text strong>Zeitraum auf einmal</Typography.Text>
-        <RangePicker
-          style={{ width: '100%' }}
-          format="DD.MM.YYYY"
-          value={zeitraum}
-          onChange={setZeitraum}
-        />
+        <ZeitraumWahl value={zeitraum} onChange={setZeitraum} />
         <Space style={{ width: '100%' }} size={8}>
           <Button
             type="primary"

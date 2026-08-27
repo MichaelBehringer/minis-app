@@ -3,7 +3,6 @@ import {
   Button,
   Card,
   Col,
-  DatePicker,
   Empty,
   Row,
   Space,
@@ -30,8 +29,7 @@ import useIsMobile from '../hooks/useIsMobile'
 import { nameVon } from '../helper/einteilung'
 import AssignSheet from './AssignSheet'
 import NeueMesseSheet from './NeueMesseSheet'
-
-const { RangePicker } = DatePicker
+import ZeitraumWahl from './ZeitraumWahl'
 
 // Beim Öffnen nicht mit leerem Bildschirm anfangen: von heute an zwei Monate
 // nach vorn ist der Zeitraum, in dem geplant wird.
@@ -301,10 +299,9 @@ export default function Einteilung({ token }) {
         style={{ width: '100%', marginBottom: 16 }}
         size={8}
       >
-        <RangePicker
-          style={{ width: isMobile ? '100%' : undefined }}
+        <ZeitraumWahl
+          style={{ width: isMobile ? '100%' : 260 }}
           value={zeitraum}
-          format="DD.MM.YYYY"
           allowClear={false}
           onChange={(v) => {
             setZeitraum(v)

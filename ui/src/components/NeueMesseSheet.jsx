@@ -20,8 +20,7 @@ import {
   serienTermine,
 } from '../helper/einteilung'
 import Sheet from './Sheet'
-
-const { RangePicker } = DatePicker
+import ZeitraumWahl from './ZeitraumWahl'
 
 // Anlegen einer einzelnen Messe oder einer ganzen Serie.
 //
@@ -156,7 +155,7 @@ export default function NeueMesseSheet({ open, onClose, locationList, onSpeicher
               name="zeitraum"
               rules={[{ required: true, message: 'Bitte einen Zeitraum wählen' }]}
             >
-              <RangePicker style={{ width: '100%' }} format="DD.MM.YYYY" />
+              <ZeitraumWahl />
             </Form.Item>
           </>
         )}
