@@ -14,6 +14,7 @@ const url = import.meta.env.VITE_API_URL ?? "/server/"
 const client = axios.create()
 
 let onUnauthorized = null
+let onTokenErneuert = null
 let bereitsGemeldet = false
 
 // Wird von TokenContainer gesetzt. Der Interceptor kann removeToken nicht
@@ -39,7 +40,22 @@ export function istTokenUngueltig(error) {
 	return Boolean(error?.config?.headers?.Authorization)
 }
 
-client.interceptors.response.use(undefined, (error) => {
+// Wird von TokenContainer gesetzt. Der Server verlaengert die Sitzung bei
+// Benutzung und legt das neue Token in den Antwortkopf.
+export function registerTokenRenewalHandler(handler) {
+	onTokenErneuert = handler
+}
+
+client.interceptors.response.use((response) => {
+	// Ohne das waere nach der Gueltigkeitsdauer Schluss, auch bei taeglicher
+	// Nutzung. Der Kopf kommt an jeder beliebigen Antwort - deshalb hier und
+	// nicht an einer bestimmten Anfrage.
+	const neu = response?.headers?.['x-neues-token']
+	if (neu && onTokenErneuert) {
+		onTokenErneuert(neu)
+	}
+	return response
+}, (error) => {
 	if (istTokenUngueltig(error) && onUnauthorized && !bereitsGemeldet) {
 		// Nur einmal: bei mehreren gleichzeitig laufenden Anfragen gaebe es
 		// sonst mehrere Meldungen.

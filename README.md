@@ -126,6 +126,35 @@ sorgen dafür, dass Updates dort ankommen:
    sie statt eines fehlenden Skripts `public/legacy-reload.js`, das Service
    Worker und Caches abräumt und die Seite unter neuer Adresse frisch lädt.
 
+### Wie lange bleibt man angemeldet?
+
+Das Häkchen **„Angemeldet bleiben"** entscheidet darüber, und zwar jetzt auch am
+Server — vorher wirkte es nur darauf, ob das Frontend das Token in
+`localStorage` oder in `sessionStorage` legt; die Gültigkeitsdauer war in beiden
+Fällen dieselbe.
+
+| | Gültigkeit | Ablage im Browser |
+|---|---|---|
+| mit Häkchen | 1 Jahr | `localStorage` — übersteht das Schließen |
+| ohne Häkchen | 12 Stunden | `sessionStorage` — endet mit dem Tab |
+
+**Die Sitzung verlängert sich durch Benutzung.** Ist die Hälfte der Gültigkeit
+vorbei, legt die `AuthUser`-Middleware ein frisches Token in den Antwortkopf
+`X-Neues-Token`; der Interceptor im Frontend ersetzt damit das alte — und zwar
+im selben Speicher, damit aus einer Sitzung ohne Häkchen nicht doch eine
+dauerhafte wird. Wer die App mindestens einmal im halben Jahr öffnet, wird
+praktisch nie abgemeldet.
+
+Ein Token **ohne** Ablaufdatum wäre der scheinbar einfachere Weg und ist
+bewusst nicht gewählt: es bliebe für immer brauchbar, wenn es einmal
+abgegriffen wird, und man könnte es nur noch loswerden, indem man den
+Signaturschlüssel wechselt — was alle gleichzeitig abmeldet. Die Verlängerung
+erreicht dasselbe Ergebnis für den Nutzer, lässt ein liegengelassenes Token
+aber verfallen.
+
+Eine Erneuerung eines **abgelaufenen** Tokens gibt es nicht — sonst wäre das
+Ablaufdatum wirkungslos. Wer zu lange weg war, meldet sich neu an.
+
 ### Müssen sich alle neu anmelden?
 
 **Ja, einmal.** Die Tokens der alten Fassung hatten kein Ablaufdatum, und

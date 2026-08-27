@@ -19,9 +19,87 @@ import (
 // Fehler von Scan verworfen wurde.
 var ErrAnmeldungFehlgeschlagen = errors.New("Benutzername oder Passwort ist falsch")
 
-// Gueltigkeitsdauer eines Tokens. Vorher hatten die Tokens kein exp und galten
-// damit unbegrenzt - ein einmal abgegriffenes Token war dauerhaft brauchbar.
-const tokenGueltigkeit = 30 * 24 * time.Hour
+// Gueltigkeitsdauer eines Tokens - zwei Werte, je nachdem ob "Angemeldet
+// bleiben" angekreuzt war.
+//
+// Ganz ohne Ablaufdatum, so wie vor der Modernisierung, ist keine Option: ein
+// einmal abgegriffenes Token bliebe dauerhaft brauchbar, und man koennte es nur
+// noch loswerden, indem man den Signaturschluessel wechselt - was alle
+// gleichzeitig abmeldet.
+//
+// Stattdessen ein langes Token, das sich bei Benutzung selbst verlaengert
+// (siehe ErneuertesToken). Wer die Anwendung mindestens einmal im halben Jahr
+// oeffnet, wird nie abgemeldet; ein liegengelassenes Token verfaellt trotzdem.
+const (
+	tokenGueltigkeitKurz = 12 * time.Hour
+	tokenGueltigkeitLang = 365 * 24 * time.Hour
+)
+
+// NeuesTokenHeader ist der Antwortkopf, in dem ein erneuertes Token zurueckgeht.
+//
+// Ueber den Kopf und nicht im Antwortkoerper, weil jede beliebige Antwort ein
+// erneuertes Token tragen kann - die Nutzlast der Endpunkte bleibt unberuehrt.
+const NeuesTokenHeader = "X-Neues-Token"
+
+func tokenGueltigkeit(angemeldetBleiben bool) time.Duration {
+	if angemeldetBleiben {
+		return tokenGueltigkeitLang
+	}
+	return tokenGueltigkeitKurz
+}
+
+func neuesToken(id int, username string, roleId int, angemeldetBleiben bool) (string, error) {
+	jetzt := time.Now()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user":   username,
+		"roleId": roleId,
+		"userId": id,
+		// Die Wahl des Nutzers gehoert ins Token, sonst weiss die Erneuerung
+		// nicht, auf welche Dauer sie verlaengern darf.
+		"remember": angemeldetBleiben,
+		"iat":      jwt.NewNumericDate(jetzt),
+		"exp":      jwt.NewNumericDate(jetzt.Add(tokenGueltigkeit(angemeldetBleiben))),
+	})
+	return token.SignedString(jwtSchluessel())
+}
+
+// ErneuertesToken gibt ein frisches Token zurueck, sobald die Haelfte der
+// Gueltigkeit abgelaufen ist. Sonst ist der zweite Rueckgabewert false.
+//
+// Das ist der Ersatz fuer ein Token ohne Ablaufdatum: aus Sicht des Nutzers
+// laeuft nichts ab, solange er die Anwendung benutzt.
+//
+// Erst ab der Haelfte und nicht bei jeder Anfrage: sonst gaebe es bei jedem
+// Seitenaufruf ein neues Token, ohne dass sich etwas aendert.
+func ErneuertesToken(claims jwt.MapClaims) (string, bool) {
+	ablauf, err := claims.GetExpirationTime()
+	if err != nil || ablauf == nil {
+		return "", false
+	}
+
+	// Fehlt der Anspruch - etwa in einem Token, das vor dieser Aenderung
+	// ausgegeben wurde -, gilt die kurze Dauer. Eine Verlaengerung darf sich
+	// nicht selbst zur langen Sitzung befoerdern.
+	angemeldetBleiben, _ := claims["remember"].(bool)
+
+	if time.Until(ablauf.Time) > tokenGueltigkeit(angemeldetBleiben)/2 {
+		return "", false
+	}
+
+	// JSON kennt nur einen Zahlentyp, jede Zahl kommt als float64 zurueck.
+	username, _ := claims["user"].(string)
+	roleId, roleOk := claims["roleId"].(float64)
+	userId, userOk := claims["userId"].(float64)
+	if username == "" || !roleOk || !userOk {
+		return "", false
+	}
+
+	signiert, err := neuesToken(int(userId), username, int(roleId), angemeldetBleiben)
+	if err != nil {
+		return "", false
+	}
+	return signiert, true
+}
 
 // Der Signaturschluessel. Wer ihn kennt, kann sich als beliebiger Benutzer
 // ausgeben, deshalb gehoert er in die Umgebung und nicht in den Quellcode.
@@ -69,16 +147,7 @@ func DoLogin(login Login) (AccessToken, error) {
 		return AccessToken{}, err
 	}
 
-	jetzt := time.Now()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user":   username,
-		"roleId": roleId,
-		"userId": id,
-		"iat":    jwt.NewNumericDate(jetzt),
-		"exp":    jwt.NewNumericDate(jetzt.Add(tokenGueltigkeit)),
-	})
-
-	signiert, err := token.SignedString(jwtSchluessel())
+	signiert, err := neuesToken(id, username, roleId, login.Remember)
 	if err != nil {
 		return AccessToken{}, err
 	}

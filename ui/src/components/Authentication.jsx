@@ -17,6 +17,10 @@ function Authentication(props) {
       const response = await doPostRequest('login', {
         username: values.username,
         password: values.password,
+        // Entscheidet ueber die Gueltigkeitsdauer des Tokens. Vorher wirkte das
+        // Haekchen nur darauf, wo das Frontend das Token ablegt - der Server
+        // gab immer dieselbe Dauer aus.
+        remember: Boolean(values.remember),
       })
       props.setToken(response.data.accessToken, values.remember)
       navigate('/')
@@ -115,6 +119,17 @@ function Authentication(props) {
           <Form.Item name="remember" valuePropName="checked">
             <Checkbox>Angemeldet bleiben</Checkbox>
           </Form.Item>
+
+          {/* Das Haekchen setzt jetzt die Gueltigkeitsdauer am Server, nicht
+              nur den Speicherort im Browser. Der Hinweis sagt, was das
+              bedeutet - ohne ihn erwartet man nach einem Jahr eine
+              Abmeldung. */}
+          <Text
+            type="secondary"
+            style={{ display: 'block', fontSize: 12, marginTop: -12, marginBottom: 20 }}
+          >
+            Die Anmeldung bleibt bestehen, solange du die App benutzt.
+          </Text>
 
           <Button
             type="primary"

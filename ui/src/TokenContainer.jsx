@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
 import App from './components/App';
 import Authentication from './components/Authentication';
-import { registerUnauthorizedHandler } from './helper/RequestHelper';
+import { registerTokenRenewalHandler, registerUnauthorizedHandler } from './helper/RequestHelper';
 import { myToastInfo } from './helper/ToastHelper';
 import useToken from "./hooks/useToken";
 
 function TokenContainer() {
-	const { token, removeToken, setToken } = useToken();
+	const { token, removeToken, setToken, erneuereToken } = useToken();
 
 	// Wird das Token waehrend der Nutzung ungueltig - weil es abgelaufen ist
 	// oder der Server mit neuem Signaturschluessel neu gestartet wurde -, laeuft
@@ -19,6 +19,13 @@ function TokenContainer() {
 			removeToken();
 		});
 	}, [removeToken, token]);
+
+	// Die Gegenrichtung: der Server verlaengert die Sitzung, sobald die Haelfte
+	// der Gueltigkeit vorbei ist, und legt das neue Token in den Antwortkopf.
+	// Ohne diesen Empfang liefe die Anmeldung trotz taeglicher Nutzung ab.
+	useEffect(() => {
+		registerTokenRenewalHandler(erneuereToken);
+	}, [erneuereToken]);
 
 	return (
 		<div>

@@ -33,6 +33,11 @@ func main() {
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
 	config.AllowHeaders = []string{"Content-Type", "Content-Length", "Accept-Encoding", "Authorization", "Cache-Control"}
+	// Ohne ExposeHeaders liest der Browser den Kopf mit dem erneuerten Token
+	// nicht aus. In Produktion laeuft alles ueber dieselbe Herkunft, in der
+	// Entwicklung ueber den Vite-Proxy - aber AllowAllOrigins steht hier, also
+	// gehoert es sauber gesetzt.
+	config.ExposeHeaders = []string{NeuesTokenHeader}
 
 	router.Use(cors.New(config))
 	router.POST("/login", login)

@@ -26,6 +26,15 @@ func AuthUser() gin.HandlerFunc {
 		}
 
 		c.Set("claims", claims)
+
+		// Die Sitzung verlaengert sich durch Benutzung. Das erneuerte Token
+		// geht im Antwortkopf zurueck, der Interceptor im Frontend legt es an
+		// die Stelle des alten. Ohne das waere nach der festen Dauer Schluss,
+		// auch bei taeglicher Nutzung.
+		if neu, ok := ErneuertesToken(claims); ok {
+			c.Header(NeuesTokenHeader, neu)
+		}
+
 		c.Next()
 	}
 }

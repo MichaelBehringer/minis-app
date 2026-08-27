@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	. "minisAPI/controller"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -135,4 +138,100 @@ func TestAllowSelfOrMinRole(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mitToken laesst eine Anfrage durch AuthUser laufen und gibt die Antwort
+// zurueck - inklusive der Kopfzeilen, denn dort landet ein erneuertes Token.
+func mitToken(t *testing.T, tokenStr string) *httptest.ResponseRecorder {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	router.GET("/geschuetzt", AuthUser(), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/geschuetzt", nil)
+	if tokenStr != "" {
+		req.Header.Set("Authorization", "Bearer "+tokenStr)
+	}
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	return w
+}
+
+func signiere(t *testing.T, claims jwt.MapClaims) string {
+	t.Helper()
+	s, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(Env("MINIS_JWT_SECRET", "")))
+	if err != nil {
+		t.Fatalf("Token konnte nicht signiert werden: %v", err)
+	}
+	return s
+}
+
+// Die Sitzung soll sich durch Benutzung verlaengern. Dieser Test haelt fest,
+// dass die Middleware das erneuerte Token tatsaechlich mitgibt - der Weg vom
+// Ablauf zum Antwortkopf ist die Stelle, an der es sonst still ausfaellt.
+func TestAuthUserVerlaengertDieSitzung(t *testing.T) {
+	t.Setenv("MINIS_JWT_SECRET", "test-schluessel-nur-fuer-den-test")
+	jetzt := time.Now()
+
+	t.Run("kurz vor Ablauf kommt ein neues Token", func(t *testing.T) {
+		alt := signiere(t, jwt.MapClaims{
+			"user":     "testperson",
+			"roleId":   float64(1),
+			"userId":   float64(7),
+			"remember": true,
+			"exp":      jwt.NewNumericDate(jetzt.Add(24 * time.Hour)),
+		})
+
+		w := mitToken(t, alt)
+		if w.Code != http.StatusOK {
+			t.Fatalf("Status = %d", w.Code)
+		}
+
+		neu := w.Header().Get(NeuesTokenHeader)
+		if neu == "" {
+			t.Fatal("kein erneuertes Token im Antwortkopf")
+		}
+		if neu == alt {
+			t.Error("dasselbe Token zurueckgegeben")
+		}
+	})
+
+	t.Run("frisches Token bleibt unberuehrt", func(t *testing.T) {
+		// Sonst wechselt das Token bei jeder einzelnen Anfrage.
+		frisch := signiere(t, jwt.MapClaims{
+			"user":     "testperson",
+			"roleId":   float64(1),
+			"userId":   float64(7),
+			"remember": true,
+			"exp":      jwt.NewNumericDate(jetzt.Add(300 * 24 * time.Hour)),
+		})
+
+		w := mitToken(t, frisch)
+		if neu := w.Header().Get(NeuesTokenHeader); neu != "" {
+			t.Error("Token wurde ohne Anlass erneuert")
+		}
+	})
+
+	t.Run("abgelaufenes Token wird nicht erneuert", func(t *testing.T) {
+		// Der wichtigste Fall: eine Verlaengerung darf ein abgelaufenes Token
+		// nicht wieder gueltig machen.
+		abgelaufen := signiere(t, jwt.MapClaims{
+			"user":     "testperson",
+			"roleId":   float64(1),
+			"userId":   float64(7),
+			"remember": true,
+			"exp":      jwt.NewNumericDate(jetzt.Add(-time.Minute)),
+		})
+
+		w := mitToken(t, abgelaufen)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("Status = %d, erwartet 401", w.Code)
+		}
+		if neu := w.Header().Get(NeuesTokenHeader); neu != "" {
+			t.Error("abgelaufenes Token wurde verlaengert")
+		}
+	})
 }

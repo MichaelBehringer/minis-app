@@ -110,3 +110,122 @@ func TestTokenOhneExpWirdAbgelehnt(t *testing.T) {
 		t.Error("Token ohne Ablaufzeit wurde angenommen")
 	}
 }
+
+// claimsVon signiert die Claims und liest sie ueber parseToken zurueck - damit
+// haben sie dieselben Typen wie im Betrieb (jede Zahl kommt als float64).
+func claimsVon(t *testing.T, claims jwt.MapClaims) jwt.MapClaims {
+	t.Helper()
+	ok, gelesen := parseToken(tokenMit(t, jwt.SigningMethodHS256, claims, jwtSchluessel()))
+	if !ok {
+		t.Fatal("Token wurde nicht angenommen")
+	}
+	return gelesen
+}
+
+func TestTokenGueltigkeit(t *testing.T) {
+	// "Angemeldet bleiben" entscheidet ueber die Dauer. Vorher gab der Server
+	// immer 30 Tage aus, egal was angekreuzt war - die Wahl wirkte nur darauf,
+	// ob das Frontend das Token in localStorage oder sessionStorage legt.
+	if tokenGueltigkeit(true) <= tokenGueltigkeit(false) {
+		t.Error("mit Haekchen muss die Gueltigkeit laenger sein")
+	}
+}
+
+func TestErneuertesToken(t *testing.T) {
+	t.Setenv("MINIS_JWT_SECRET", "test-schluessel-nur-fuer-den-test")
+	jetzt := time.Now()
+
+	basis := func(exp time.Duration, remember bool) jwt.MapClaims {
+		return jwt.MapClaims{
+			"user":     "testperson",
+			"roleId":   2,
+			"userId":   7,
+			"remember": remember,
+			"exp":      jwt.NewNumericDate(jetzt.Add(exp)),
+		}
+	}
+
+	t.Run("frisches Token wird nicht erneuert", func(t *testing.T) {
+		// Sonst gaebe es bei jedem Seitenaufruf ein neues Token.
+		if _, ok := ErneuertesToken(claimsVon(t, basis(tokenGueltigkeitLang, true))); ok {
+			t.Error("Token wurde erneuert, obwohl fast die ganze Dauer offen ist")
+		}
+	})
+
+	t.Run("ab der Haelfte wird erneuert", func(t *testing.T) {
+		alt := basis(tokenGueltigkeitLang/2-time.Hour, true)
+		neu, ok := ErneuertesToken(claimsVon(t, alt))
+		if !ok {
+			t.Fatal("Token wurde nicht erneuert")
+		}
+
+		gueltig, claims := parseToken(neu)
+		if !gueltig {
+			t.Fatal("das erneuerte Token gilt nicht")
+		}
+		// Die Identitaet muss unveraendert mitkommen - eine Erneuerung darf
+		// keine Rolle und keinen Benutzer wechseln.
+		if claims["user"] != "testperson" {
+			t.Errorf("user = %v", claims["user"])
+		}
+		if claims["roleId"] != float64(2) || claims["userId"] != float64(7) {
+			t.Errorf("roleId = %v, userId = %v", claims["roleId"], claims["userId"])
+		}
+		if claims["remember"] != true {
+			t.Errorf("remember = %v", claims["remember"])
+		}
+
+		ablauf, err := claims.GetExpirationTime()
+		if err != nil || ablauf == nil {
+			t.Fatalf("kein exp im erneuerten Token: %v", err)
+		}
+		if rest := time.Until(ablauf.Time); rest < tokenGueltigkeitLang-time.Minute {
+			t.Errorf("Restdauer nur %v, erwartet rund %v", rest, tokenGueltigkeitLang)
+		}
+	})
+
+	t.Run("ohne Haekchen gilt die kurze Dauer", func(t *testing.T) {
+		neu, ok := ErneuertesToken(claimsVon(t, basis(time.Hour, false)))
+		if !ok {
+			t.Fatal("Token wurde nicht erneuert")
+		}
+		_, claims := parseToken(neu)
+		ablauf, _ := claims.GetExpirationTime()
+		if rest := time.Until(ablauf.Time); rest > tokenGueltigkeitKurz+time.Minute {
+			t.Errorf("Restdauer %v, erwartet hoechstens %v", rest, tokenGueltigkeitKurz)
+		}
+	})
+
+	t.Run("fehlendes remember befoerdert sich nicht selbst", func(t *testing.T) {
+		// Ein Token aus der Zeit vor dieser Aenderung hat den Anspruch nicht.
+		// Wuerde die Erneuerung dann die lange Dauer annehmen, koennte eine
+		// kurze Sitzung ueber die Verlaengerung zu einer dauerhaften werden.
+		ohne := jwt.MapClaims{
+			"user":   "testperson",
+			"roleId": 1,
+			"userId": 7,
+			"exp":    jwt.NewNumericDate(jetzt.Add(time.Hour)),
+		}
+		neu, ok := ErneuertesToken(claimsVon(t, ohne))
+		if !ok {
+			t.Fatal("Token wurde nicht erneuert")
+		}
+		_, claims := parseToken(neu)
+		ablauf, _ := claims.GetExpirationTime()
+		if rest := time.Until(ablauf.Time); rest > tokenGueltigkeitKurz+time.Minute {
+			t.Errorf("Restdauer %v, erwartet hoechstens %v", rest, tokenGueltigkeitKurz)
+		}
+	})
+
+	t.Run("unvollstaendige Claims werden nicht erneuert", func(t *testing.T) {
+		// Lieber keine Verlaengerung als ein Token ohne Rolle - das waere in
+		// der Middleware ein 401 bei der naechsten Anfrage.
+		ohneRolle := jwt.MapClaims{
+			"user": "testperson",
+			"exp":  jwt.NewNumericDate(jetzt.Add(time.Hour)),
+		}
+		if _, ok := ErneuertesToken(claimsVon(t, ohneRolle)); ok {
+			t.Error("Token ohne roleId wurde erneuert")
+		}
+	})
+}
