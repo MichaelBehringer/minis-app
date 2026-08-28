@@ -9,7 +9,7 @@
 # nicht still abbrechen. Fehler laufen über die Funktion abbruch().
 
 APP_DIR=/root/minis-app
-REPO_DIR=/root/minis-backup
+REPO_DIR=/root/zap-backup/minis
 CSV_DIR="$REPO_DIR/csv"
 ENV_DATEI="$APP_DIR/.env"
 
@@ -161,7 +161,7 @@ if git -C "$REPO_DIR" diff --cached --quiet; then
 	exit 0
 fi
 
-if ! git -C "$REPO_DIR" commit -q -m "Sicherung $(date '+%Y-%m-%d %H:%M')"; then
+if ! git -C "$REPO_DIR" commit -q -m "Sicherung minis $(date '+%Y-%m-%d %H:%M')"; then
 	abbruch "git commit"
 fi
 
