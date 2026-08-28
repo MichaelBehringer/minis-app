@@ -123,7 +123,7 @@ export default function NeuerMiniSheet({
           <Input.Password autoComplete="new-password" />
         </Form.Item>
 
-        <Form.Item label="Telefon" name="phone" extra="In der Regel die Nummer der Eltern">
+        <Form.Item label="Telefon" name="phone">
           <Input type="tel" autoComplete="tel" />
         </Form.Item>
 
@@ -150,7 +150,6 @@ export default function NeuerMiniSheet({
           label="Aktiv"
           name="active"
           valuePropName="checked"
-          extra="Inaktive Ministranten werden beim Einteilen nicht vorgeschlagen"
         >
           <Switch aria-label="Aktiv" />
         </Form.Item>

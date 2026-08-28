@@ -39,7 +39,6 @@ export default function UserGeneralForm({
       <Form.Item
         label="Telefon"
         name="phone"
-        extra="In der Regel die Nummer der Eltern"
       >
         <Input type="tel" autoComplete="tel" />
       </Form.Item>
@@ -84,11 +83,6 @@ export default function UserGeneralForm({
         label="Aktiv"
         name="active"
         valuePropName="checked"
-        extra={
-          istPlaner
-            ? 'Inaktive Ministranten werden beim Einteilen nicht vorgeschlagen'
-            : 'Kann nur vom Ministrantenrat geändert werden'
-        }
       >
         <Switch disabled={!istPlaner} aria-label="Aktiv" />
       </Form.Item>

@@ -108,8 +108,7 @@ export default function KalenderAbo({ userId, token }) {
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Die eigenen Einsätze im Handy-Kalender. Der Kalender holt sich Änderungen
-        selbst und erinnert an den Termin — und die Eltern sehen sie mit, ohne die
-        App zu installieren.
+        selbst und erinnert an den Termin.
       </Typography.Paragraph>
 
       {!feedToken ? (
