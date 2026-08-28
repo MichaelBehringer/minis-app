@@ -263,6 +263,41 @@ export default function Einteilung({ token }) {
     }
   }
 
+  // Mehrere auf einmal - fuer den uebernommenen Vorschlag.
+  //
+  // Eine eigene Funktion und nicht sechsmal umschalten(): das liest jedes Mal
+  // den Zustand von vorher, weil setState asynchron ist. Sechs Aufrufe in einem
+  // Durchgang wuerden also fuenf Anzeigen wieder verwerfen, obwohl alle sechs
+  // Anfragen beim Server ankommen.
+  const mehrereEinteilen = async (userIds) => {
+    if (!aktivesEvent || userIds.length === 0) return
+
+    const alt = zugewiesenAktiv
+    const neu = [...alt, ...userIds.filter((id) => !alt.includes(id))]
+    setzeZuweisung(aktivesEvent.id, neu)
+
+    try {
+      // Nacheinander, nicht parallel: es sind hoechstens ein paar Anfragen, und
+      // bei einem Fehler ist nachvollziehbar, wo es aufgehoert hat.
+      for (const userId of userIds) {
+        await doPatchRequestAuth(
+          `events/${aktivesEvent.id}/assign/add`,
+          { userId },
+          token
+        )
+      }
+      myToastSuccess(
+        `${userIds.length} ${userIds.length === 1 ? 'Ministrant' : 'Ministranten'} eingeteilt`
+      )
+    } catch {
+      // Zurueckdrehen genuegt hier nicht: ein Teil kann schon gespeichert sein.
+      // Deshalb frisch laden, damit die Anzeige dem Stand der Datenbank
+      // entspricht.
+      myToastError('Vorschlag konnte nicht vollständig gespeichert werden')
+      await ladeEvents(zeitraum)
+    }
+  }
+
   const speichereMessen = async (neueEvents) => {
     try {
       if (neueEvents.length === 1) {
@@ -429,6 +464,7 @@ export default function Einteilung({ token }) {
         laedt={laedtOptionen}
         zugewiesen={zugewiesenAktiv}
         onToggle={umschalten}
+        onMehrereEinteilen={mehrereEinteilen}
       />
     </div>
   )

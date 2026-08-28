@@ -44,6 +44,7 @@ const OPTIONEN = [
 function zeige(props = {}) {
   const onToggle = vi.fn()
   const onClose = vi.fn()
+  const onMehrereEinteilen = vi.fn().mockResolvedValue(undefined)
 
   render(
     <AppProviders>
@@ -55,12 +56,13 @@ function zeige(props = {}) {
         laedt={false}
         zugewiesen={[]}
         onToggle={onToggle}
+        onMehrereEinteilen={onMehrereEinteilen}
         {...props}
       />
     </AppProviders>
   )
 
-  return { onToggle, onClose }
+  return { onToggle, onClose, onMehrereEinteilen }
 }
 
 describe('AssignSheet', () => {
@@ -206,5 +208,47 @@ describe('AssignSheet', () => {
     await nutzer.click(screen.getByRole('button', { name: /Emil Egger/ }))
 
     expect(onToggle).toHaveBeenCalledExactlyOnceWith(9)
+  })
+
+  it('schlägt für die offenen Stellen vor, ohne zu speichern', async () => {
+    // Der Unterschied zur entfernten Vollautomatik: entschieden wird beim
+    // Übernehmen, nicht beim Rechnen.
+    const nutzer = userEvent.setup()
+    const { onMehrereEinteilen } = zeige()
+
+    // Soll 3, niemand eingeteilt -> drei offene Stellen.
+    await nutzer.click(screen.getByRole('button', { name: /Vorschlag für 3 offene/ }))
+
+    expect(onMehrereEinteilen).not.toHaveBeenCalled()
+    // Nur Anna und Ben können; Clara ist gesperrt, Dora inaktiv.
+    expect(screen.getAllByText('Vorschlag')).toHaveLength(2)
+    expect(screen.getByText(/2 vorgeschlagen von 3 offenen Stellen/)).toBeInTheDocument()
+  })
+
+  it('übernimmt den Vorschlag erst auf Knopfdruck', async () => {
+    const nutzer = userEvent.setup()
+    const { onMehrereEinteilen } = zeige()
+
+    await nutzer.click(screen.getByRole('button', { name: /Vorschlag für 3 offene/ }))
+    await nutzer.click(screen.getByRole('button', { name: 'Übernehmen' }))
+
+    // Ben war noch nie dran und steht deshalb vor Anna.
+    expect(onMehrereEinteilen).toHaveBeenCalledExactlyOnceWith([2, 1])
+  })
+
+  it('verwirft den Vorschlag wieder', async () => {
+    const nutzer = userEvent.setup()
+    const { onMehrereEinteilen } = zeige()
+
+    await nutzer.click(screen.getByRole('button', { name: /Vorschlag für 3 offene/ }))
+    await nutzer.click(screen.getByRole('button', { name: 'Verwerfen' }))
+
+    expect(onMehrereEinteilen).not.toHaveBeenCalled()
+    expect(screen.queryByText('Vorschlag')).not.toBeInTheDocument()
+  })
+
+  it('bietet keinen Vorschlag an, wenn der Sollwert erreicht ist', () => {
+    zeige({ zugewiesen: [1, 2, 3] })
+    expect(screen.queryByRole('button', { name: /Vorschlag für/ })).not.toBeInTheDocument()
   })
 })

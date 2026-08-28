@@ -83,6 +83,31 @@ export function gruppiereOptionen(optionen) {
   })).filter((g) => g.eintraege.length > 0)
 }
 
+// Vorschlag fuer die offenen Plaetze einer Messe.
+//
+// Bewusst klein gehalten und ausdruecklich NICHT die frueher vorhandene
+// Vollautomatik: die war 603 Zeilen, wurde nie benutzt, und die Daten zeigen,
+// dass die Verteilung von Hand gut funktioniert - unter den 33 aktiven
+// Ministranten hat jeder Einsaetze, der Grossteil zwischen 22 und 28.
+//
+// Vorgeschlagen wird nur, wer laut Backend "kann" (Status ok): eine Sperrung
+// oder ein nicht passender Wochentag ist eine Entscheidung des Planers, kein
+// Vorschlag. Sortiert wird nach derselben Regel wie die Liste - wer am
+// laengsten nicht dran war, steht oben.
+//
+// Es entscheidet weiter der Mensch: die Rueckgabe ist eine Auswahl, die
+// bestaetigt werden muss.
+export function vorschlagFuerOffenePlaetze(optionen, zugewiesen, soll) {
+  const offen = (soll ?? 0) - zugewiesen.length
+  if (offen <= 0) return []
+
+  return optionen
+    .filter((o) => o.status === 'ok' && !zugewiesen.includes(o.id))
+    .sort(vergleicheOptionen)
+    .slice(0, offen)
+    .map((o) => o.id)
+}
+
 // Wochentage in der Schreibweise der Tabelle user_weekday (MON..SUN),
 // zusammen mit der Nummerierung von dayjs (0 = Sonntag).
 export const WOCHENTAGE = [

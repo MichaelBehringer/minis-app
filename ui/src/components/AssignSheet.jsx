@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
+  Alert,
   App as AntApp,
   Button,
   Empty,
@@ -10,15 +11,16 @@ import {
   Typography,
   theme,
 } from 'antd'
-import { CheckOutlined, HeartOutlined } from '@ant-design/icons'
-import { useState } from 'react'
+import { BulbOutlined, CheckOutlined, HeartOutlined } from '@ant-design/icons'
 import {
   abstandText,
   gruppiereOptionen,
   metaFuer,
   nameVon,
   naechsterText,
+  vorschlagFuerOffenePlaetze,
 } from '../helper/einteilung'
+import { myToastInfo } from '../helper/ToastHelper'
 import Sheet from './Sheet'
 
 // Zustaende, bei denen ein Einteilen der eigenen Angabe des Ministranten
@@ -45,7 +47,7 @@ const RUECKFRAGE = {
 // Bewusst ein Knopf ueber die ganze Breite mit mindestens 48px Hoehe: das
 // ersetzt ein Mehrfach-Select mit gruppierten Optionen, das am Handy in einer
 // schmalen Kartenspalte praktisch nicht bedienbar war.
-function MiniZeile({ option, aktiv, wunschNamen, onToggle }) {
+function MiniZeile({ option, aktiv, vorgeschlagen, wunschNamen, onToggle }) {
   const { token } = theme.useToken()
   const meta = metaFuer(option.status)
   const naechster = naechsterText(option)
@@ -67,7 +69,11 @@ function MiniZeile({ option, aktiv, wunschNamen, onToggle }) {
         marginBottom: 6,
         cursor: 'pointer',
         borderRadius: token.borderRadius,
-        border: `1px solid ${aktiv ? token.colorPrimary : token.colorBorderSecondary}`,
+        // Ein Vorschlag ist noch nichts Gespeichertes - gestrichelt, damit der
+        // Unterschied zu einer Einteilung auf einen Blick sichtbar ist.
+        border: vorgeschlagen
+          ? `1px dashed ${token.colorPrimary}`
+          : `1px solid ${aktiv ? token.colorPrimary : token.colorBorderSecondary}`,
         background: aktiv ? token.controlItemBgActive : token.colorBgContainer,
         color: token.colorText,
       }}
@@ -117,8 +123,11 @@ function MiniZeile({ option, aktiv, wunschNamen, onToggle }) {
         )}
       </span>
 
-      <Tag color={meta.tagColor} style={{ marginInlineEnd: 0, flexShrink: 0 }}>
-        {meta.tagText}
+      <Tag
+        color={vorgeschlagen ? 'blue' : meta.tagColor}
+        style={{ marginInlineEnd: 0, flexShrink: 0 }}
+      >
+        {vorgeschlagen ? 'Vorschlag' : meta.tagText}
       </Tag>
     </button>
   )
@@ -132,10 +141,15 @@ export default function AssignSheet({
   laedt,
   zugewiesen,
   onToggle,
+  onMehrereEinteilen,
 }) {
   const { token } = theme.useToken()
   const { modal } = AntApp.useApp()
   const [suche, setSuche] = useState('')
+  // Der noch nicht bestätigte Vorschlag, zusammen mit der Messe, zu der er
+  // gehört. Die Id mitzuführen ist einfacher als sie in einem Effekt zu
+  // löschen: bei einer anderen Messe gilt der Vorschlag schlicht nicht.
+  const [vorschlagFuer, setVorschlagFuer] = useState({ eventId: null, ids: [] })
 
   // Beim Entfernen wird nie gefragt - nur beim Einteilen gegen eine Angabe,
   // die der Ministrant selbst gemacht hat.
@@ -175,6 +189,26 @@ export default function AssignSheet({
 
   const anzahl = zugewiesen.length
   const soll = event?.minimalUser ?? 0
+  const offen = soll - anzahl
+
+  const messeId = event?.id
+  const vorschlag = vorschlagFuer.eventId === messeId ? vorschlagFuer.ids : []
+  const verwerfen = () => setVorschlagFuer({ eventId: null, ids: [] })
+
+  const vorschlagen = () => {
+    const ids = vorschlagFuerOffenePlaetze(optionen, zugewiesen, soll)
+    if (ids.length === 0) {
+      myToastInfo('Es ist niemand verfügbar, der noch nicht eingeteilt ist')
+      return
+    }
+    setVorschlagFuer({ eventId: messeId, ids })
+  }
+
+  const uebernehmen = async () => {
+    const ids = vorschlag
+    verwerfen()
+    await onMehrereEinteilen(ids)
+  }
 
   return (
     <Sheet
@@ -196,6 +230,40 @@ export default function AssignSheet({
           {anzahl > soll && soll > 0 ? ' (mehr als vorgesehen)' : ''}
           {anzahl < soll ? ` · noch ${soll - anzahl} nötig` : ''}
         </Typography.Text>
+
+        {/* Der Knopf füllt nur die offenen Plätze und speichert nichts -
+            entschieden wird beim Übernehmen. Das ist der Unterschied zur
+            entfernten Vollautomatik. */}
+        {offen > 0 && vorschlag.length === 0 && (
+          <Button
+            block
+            icon={<BulbOutlined aria-hidden />}
+            onClick={vorschlagen}
+          >
+            Vorschlag für {offen} offene {offen === 1 ? 'Stelle' : 'Stellen'}
+          </Button>
+        )}
+
+        {vorschlag.length > 0 && (
+          <Alert
+            type="info"
+            showIcon
+            message={`${vorschlag.length} vorgeschlagen${
+              vorschlag.length < offen ? ` von ${offen} offenen Stellen` : ''
+            }`}
+            description="Noch nicht gespeichert. Einzelne lassen sich vorher antippen."
+            action={
+              <Space direction="vertical" size={4}>
+                <Button size="small" type="primary" onClick={uebernehmen}>
+                  Übernehmen
+                </Button>
+                <Button size="small" onClick={verwerfen}>
+                  Verwerfen
+                </Button>
+              </Space>
+            }
+          />
+        )}
 
         <Input.Search
           placeholder="Namen suchen"
@@ -233,6 +301,7 @@ export default function AssignSheet({
                   key={option.id}
                   option={option}
                   aktiv={zugewiesen.includes(option.id)}
+                  vorgeschlagen={vorschlag.includes(option.id)}
                   wunschNamen={(option.preferredWith ?? [])
                     .map((id) => nameNachId.get(id))
                     .filter(Boolean)}

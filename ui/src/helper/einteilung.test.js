@@ -7,6 +7,7 @@ import {
   gruppiereOptionen,
   serienTermine,
   vergleicheOptionen,
+  vorschlagFuerOffenePlaetze,
 } from './einteilung'
 
 const tag = (key) => WOCHENTAGE.find((w) => w.key === key).dayjsTag
@@ -139,5 +140,52 @@ describe('abstandText', () => {
     expect(abstandText({ lastAssignmentDaysBefore: 0 })).toBe('heute schon eingeteilt')
     expect(abstandText({ lastAssignmentDaysBefore: 1 })).toBe('zuletzt gestern')
     expect(abstandText({ lastAssignmentDaysBefore: 14 })).toBe('zuletzt vor 14 Tagen')
+  })
+})
+
+describe('vorschlagFuerOffenePlaetze', () => {
+  const optionen = [
+    { id: 1, status: 'ok', lastAssignmentDaysBefore: 10, lastname: 'A', firstname: 'A' },
+    { id: 2, status: 'ok', lastAssignmentDaysBefore: 40, lastname: 'B', firstname: 'B' },
+    { id: 3, status: 'ok', lastAssignmentDaysBefore: null, lastname: 'C', firstname: 'C' },
+    { id: 4, status: 'banned', lastAssignmentDaysBefore: 99, lastname: 'D', firstname: 'D' },
+    { id: 5, status: 'weekday_inactive', lastAssignmentDaysBefore: 99, lastname: 'E', firstname: 'E' },
+    { id: 6, status: 'inactive', lastAssignmentDaysBefore: 99, lastname: 'F', firstname: 'F' },
+  ]
+
+  it('füllt genau die offenen Plätze', () => {
+    expect(vorschlagFuerOffenePlaetze(optionen, [], 2)).toHaveLength(2)
+  })
+
+  it('nimmt den, der am längsten nicht dran war, zuerst', () => {
+    // "noch nie eingeteilt" (null) zählt als der längste Abstand.
+    expect(vorschlagFuerOffenePlaetze(optionen, [], 3)).toEqual([3, 2, 1])
+  })
+
+  it('schlägt niemanden vor, der gesperrt oder inaktiv ist', () => {
+    // Eine Sperrung zu übergehen ist eine Entscheidung des Planers, kein
+    // Vorschlag - dasselbe gilt für den Wochentag.
+    const ids = vorschlagFuerOffenePlaetze(optionen, [], 10)
+    expect(ids).not.toContain(4)
+    expect(ids).not.toContain(5)
+    expect(ids).not.toContain(6)
+  })
+
+  it('überspringt, wer schon eingeteilt ist', () => {
+    expect(vorschlagFuerOffenePlaetze(optionen, [3, 2], 3)).toEqual([1])
+  })
+
+  it('schlägt nichts vor, wenn der Sollwert erreicht ist', () => {
+    expect(vorschlagFuerOffenePlaetze(optionen, [1, 2], 2)).toEqual([])
+    // Und auch nicht bei Überschreitung - die ist in den Daten normal.
+    expect(vorschlagFuerOffenePlaetze(optionen, [1, 2, 3], 2)).toEqual([])
+  })
+
+  it('gibt weniger zurück, wenn nicht genug verfügbar sind', () => {
+    expect(vorschlagFuerOffenePlaetze(optionen, [], 8)).toHaveLength(3)
+  })
+
+  it('kommt mit fehlendem Sollwert klar', () => {
+    expect(vorschlagFuerOffenePlaetze(optionen, [], undefined)).toEqual([])
   })
 })
