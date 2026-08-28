@@ -1,7 +1,8 @@
 package middleware
 
 import (
-	"fmt"
+	"strconv"
+
 	. "minisAPI/controller"
 	. "minisAPI/models"
 	"net/http"
@@ -25,24 +26,75 @@ func AuthUser() gin.HandlerFunc {
 		}
 
 		c.Set("claims", claims)
+
+		// Die Sitzung verlaengert sich durch Benutzung. Das erneuerte Token
+		// geht im Antwortkopf zurueck, der Interceptor im Frontend legt es an
+		// die Stelle des alten. Ohne das waere nach der festen Dauer Schluss,
+		// auch bei taeglicher Nutzung.
+		if neu, ok := ErneuertesToken(claims); ok {
+			c.Header(NeuesTokenHeader, neu)
+		}
+
 		c.Next()
 	}
 }
 
+// claimZahl liest einen Zahlenwert aus den Claims.
+//
+// JSON kennt nur einen Zahlentyp, deshalb kommt jede Zahl als float64 an. Fehlt
+// der Wert oder hat er einen anderen Typ, war das vorher ein Panic mitten in der
+// Middleware - ein Token ohne roleId hat den Server also mit 500 antworten
+// lassen statt mit 403.
+func claimZahl(claims jwt.MapClaims, name string) (int, bool) {
+	v, ok := claims[name].(float64)
+	if !ok {
+		return 0, false
+	}
+	return int(v), true
+}
+
+// claimsAus holt die von AuthUser gesetzten Claims aus dem Context. Der zweite
+// Rueckgabewert ist false, wenn sie fehlen oder nicht den erwarteten Typ haben.
+func claimsAus(c *gin.Context) (jwt.MapClaims, bool) {
+	val, exists := c.Get("claims")
+	if !exists {
+		return nil, false
+	}
+	claims, ok := val.(jwt.MapClaims)
+	return claims, ok
+}
+
+// ClaimZahl liest einen Zahlenwert aus den Claims, die AuthUser gesetzt hat.
+//
+// Exportiert, weil nicht nur die Middleware die eigene Rolle braucht: ob jemand
+// eine Rolle vergeben darf, haengt von seiner eigenen ab, und das entscheidet
+// der Handler.
+func ClaimZahl(c *gin.Context, name string) (int, bool) {
+	claims, ok := claimsAus(c)
+	if !ok {
+		return 0, false
+	}
+	return claimZahl(claims, name)
+}
+
+// AllowSelfOrMinRole laesst den Zugriff durch, wenn die angefragte userId die
+// eigene ist oder die Rolle mindestens minRole erreicht.
 func AllowSelfOrMinRole(minRole int) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		claimsVal, exists := c.Get("claims")
-		if !exists {
+		claims, ok := claimsAus(c)
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 
-		claims := claimsVal.(jwt.MapClaims)
-		role := int(claims["roleId"].(float64))
-		tokenUserId := fmt.Sprintf("%.0f", claims["userId"].(float64))
-		paramUserId := c.Param("userId")
+		role, roleOk := claimZahl(claims, "roleId")
+		userId, userOk := claimZahl(claims, "userId")
+		if !roleOk || !userOk {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 
-		if tokenUserId != paramUserId && role < minRole {
+		if strconv.Itoa(userId) != c.Param("userId") && role < minRole {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
 			return
 		}
@@ -51,16 +103,44 @@ func AllowSelfOrMinRole(minRole int) gin.HandlerFunc {
 	}
 }
 
-func AllowMinRole(minRole int) gin.HandlerFunc {
+// AllowSelfOnly laesst nur den Zugriff auf die eigene userId durch - auch ein
+// Admin kommt hier nicht an fremde Daten.
+//
+// Gebraucht fuer den Kalender-Link: der ist ein Zugangsmittel, kein Datum. Wer
+// ihn hat, sieht die Einsaetze dieser Person ohne Anmeldung. Ein Planer darf
+// alles ueber einen Ministranten wissen, aber nicht dessen Zugang in die Hand
+// bekommen.
+func AllowSelfOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		claimsVal, exists := c.Get("claims")
-		if !exists {
+		userId, ok := ClaimZahl(c, "userId")
+		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 
-		claims := claimsVal.(jwt.MapClaims)
-		role := int(claims["roleId"].(float64))
+		if strconv.Itoa(userId) != c.Param("userId") {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// AllowMinRole laesst den Zugriff nur ab der Rolle minRole durch.
+func AllowMinRole(minRole int) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := claimsAus(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+
+		role, roleOk := claimZahl(claims, "roleId")
+		if !roleOk {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 
 		if role < minRole {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden"})

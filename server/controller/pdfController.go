@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
+	. "minisAPI/models"
 	"strings"
 	"time"
 
@@ -53,13 +54,7 @@ func CreateEventPlanPDF(db *sql.DB, startDate string, endDate string) ([]byte, e
 		return nil, err
 	}
 
-	// Initialize PDF
-	pdf := fpdf.New("P", "mm", "A4", "")
-
-	// Note: Ensure these paths are correct for your project structure
-	pdf.AddUTF8Font("myArial", "", "ressources/arial-unicode-ms.ttf")
-	pdf.AddUTF8Font("myArial", "B", "ressources/arial-unicode-ms-bold.ttf")
-	pdf.AddUTF8Font("myArial", "I", "ressources/arial-unicode-ms.ttf") // Using regular as italic placeholder if bold not avail
+	pdf := neuesPdf()
 
 	// Set Header and Footer
 	pdf.SetHeaderFunc(func() { drawHeader(pdf, startDate, endDate) })
@@ -88,6 +83,135 @@ func CreateEventPlanPDF(db *sql.DB, startDate string, endDate string) ([]byte, e
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// CreateUserPlanPDF erzeugt den persoenlichen Plan eines Ministranten.
+//
+// Anderes Layout als der Aushang: dort steht je Messe eine Namensliste, hier
+// eine Zeile je Termin. Zum Ausdrucken und an den Kuehlschrank haengen - fuer
+// die, die nicht mit einem Kalender-Abo arbeiten.
+//
+// Bewusst ueber GetEventsForUser und nicht ueber eine eigene Abfrage: dort
+// stecken schon die Namen der Mitzugeteilten, und es gibt nur eine Stelle, die
+// wissen muss, welche Einsaetze zu einer Person gehoeren.
+func CreateUserPlanPDF(userId string, name string, abDatum string) ([]byte, error) {
+	events, err := GetEventsForUser(userId)
+	if err != nil {
+		return nil, err
+	}
+
+	pdf := neuesPdf()
+	pdf.SetHeaderFunc(func() { drawUserHeader(pdf, name) })
+	pdf.SetFooterFunc(func() { drawFooter(pdf) })
+	pdf.SetMargins(15, 25, 15)
+	pdf.AddPage()
+
+	gezeigt := 0
+	for _, ev := range events {
+		// Der Vergleich als Zeichenkette funktioniert, weil beide Werte im
+		// Format YYYY-MM-DD vorliegen - und spart das Parsen.
+		if abDatum != "" && ev.DateBegin < abDatum {
+			continue
+		}
+		drawUserEventRow(pdf, ev)
+		gezeigt++
+	}
+
+	if gezeigt == 0 {
+		pdf.SetFont("myArial", "", 11)
+		pdf.SetTextColor(ColorTextR, ColorTextG, ColorTextB)
+		pdf.CellFormat(0, 8, "In diesem Zeitraum sind keine Einsätze eingeteilt.", "", 1, "L", false, 0, "")
+	}
+
+	buf := new(bytes.Buffer)
+	if err := pdf.Output(buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// neuesPdf baut ein leeres Dokument samt Schriften.
+//
+// Herausgezogen, weil es beide Layouts brauchen - vorher stand das Laden der
+// Schriften mitten in CreateEventPlanPDF.
+func neuesPdf() *fpdf.Fpdf {
+	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.AddUTF8Font("myArial", "", "ressources/arial-unicode-ms.ttf")
+	pdf.AddUTF8Font("myArial", "B", "ressources/arial-unicode-ms-bold.ttf")
+	pdf.AddUTF8Font("myArial", "I", "ressources/arial-unicode-ms.ttf")
+	return pdf
+}
+
+func drawUserHeader(pdf *fpdf.Fpdf, name string) {
+	pdf.SetFillColor(ColorPrimaryR, ColorPrimaryG, ColorPrimaryB)
+	pdf.Rect(0, 0, 210, 30, "F")
+	pdf.ImageOptions("ressources/logoRemBG.png", 10, 5, 0, 20, false, fpdf.ImageOptions{ReadDpi: true}, 0, "")
+
+	pdf.SetY(8)
+	pdf.SetTextColor(255, 255, 255)
+	pdf.SetFont("myArial", "B", 20)
+	pdf.CellFormat(0, 10, "MEINE EINSÄTZE", "", 1, "C", false, 0, "")
+
+	pdf.SetFont("myArial", "", 10)
+	pdf.CellFormat(0, 6, name, "", 1, "C", false, 0, "")
+
+	pdf.SetY(35)
+}
+
+// drawUserEventRow zeichnet eine Zeile: Datum und Uhrzeit links, Messe, Ort und
+// die Mitzugeteilten rechts.
+func drawUserEventRow(pdf *fpdf.Fpdf, ev Event) {
+	// Genug Platz fuer die Zeile? Sonst neue Seite. Ohne diese Pruefung reisst
+	// ein Eintrag am Seitenende auseinander.
+	if pdf.GetY() > 250 {
+		pdf.AddPage()
+	}
+
+	oben := pdf.GetY()
+
+	pdf.SetTextColor(ColorTextR, ColorTextG, ColorTextB)
+	pdf.SetFont("myArial", "B", 11)
+	pdf.SetX(15)
+	pdf.CellFormat(38, 6, formatDateShort(ev.DateBegin), "", 0, "L", false, 0, "")
+
+	pdf.SetFont("myArial", "B", 12)
+	pdf.CellFormat(0, 6, ev.Name, "", 1, "L", false, 0, "")
+
+	pdf.SetFont("myArial", "", 10)
+	pdf.SetX(15)
+	pdf.CellFormat(38, 5, uhrzeitKurz(ev.TimeBegin)+" Uhr", "", 0, "L", false, 0, "")
+
+	pdf.SetTextColor(ColorAccentR, ColorAccentG, ColorAccentB)
+	pdf.CellFormat(0, 5, strings.ToUpper(ev.Location), "", 1, "L", false, 0, "")
+
+	// Wer sonst dabei ist. MultiCell, damit eine lange Liste umbricht statt aus
+	// der Seite zu laufen.
+	if len(ev.AssignedNames) > 0 {
+		pdf.SetTextColor(120, 120, 120)
+		pdf.SetFont("myArial", "", 9)
+		pdf.SetX(53)
+		pdf.MultiCell(142, 4, "mit "+strings.Join(ev.AssignedNames, ", "), "", "L", false)
+	}
+
+	pdf.SetY(oben + maxFloat(14, pdf.GetY()-oben+2))
+	pdf.SetDrawColor(225, 225, 225)
+	pdf.Line(15, pdf.GetY()-3, 195, pdf.GetY()-3)
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// uhrzeitKurz macht aus 18:00:00 ein 18:00. Die Spalte ist eine TIME, das
+// Format kommt so aus der Datenbank.
+func uhrzeitKurz(zeit string) string {
+	if len(zeit) >= 5 {
+		return zeit[:5]
+	}
+	return zeit
 }
 
 // -----------------------------------------------------------------------------
@@ -294,13 +418,29 @@ func loadEventsWithAssignedUsers(db *sql.DB, startDate string, endDate string) (
 	}
 	defer rows.Close()
 
-	var result []FullEvent
+	// Erst alle Messen einlesen, dann die Namen dazu. Die Unterabfrage lief
+	// vorher innerhalb der offenen Schleife und belegte dabei eine zweite
+	// Verbindung, und ihr Fehler wurde mit dem Hinweis "omitted for brevity"
+	// verworfen - fehlende Namen im Plan waeren damit unbemerkt geblieben.
+	var events []PdfEvent
 	for rows.Next() {
 		var ev PdfEvent
 		if err := rows.Scan(&ev.ID, &ev.Name, &ev.DateBegin, &ev.TimeBegin, &ev.Location); err != nil {
 			return nil, err
 		}
-		users, _ := loadAssignedUsers(db, ev.ID) // Error handling omitted for brevity
+		events = append(events, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	var result []FullEvent
+	for _, ev := range events {
+		users, err := loadAssignedUsers(db, ev.ID)
+		if err != nil {
+			return nil, err
+		}
 		result = append(result, FullEvent{Event: ev, Users: users})
 	}
 	return result, nil
@@ -316,8 +456,10 @@ func loadAssignedUsers(db *sql.DB, eventID int) ([]AssignedUser, error) {
 	var users []AssignedUser
 	for rows.Next() {
 		var u AssignedUser
-		rows.Scan(&u.Firstname, &u.Lastname)
+		if err := rows.Scan(&u.Firstname, &u.Lastname); err != nil {
+			return nil, err
+		}
 		users = append(users, u)
 	}
-	return users, nil
+	return users, rows.Err()
 }

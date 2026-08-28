@@ -1,26 +1,41 @@
-version: '3'
+# Der Schluessel "version" ist seit Compose v2 ohne Wirkung und wird beim
+# Start mit einer Warnung gemeldet - deshalb entfernt.
 services:
   server:
     build: server
-    deploy:
-      mode: replicated
-      replicas: 1
     restart: always
+    environment:
+      # Kommen aus der .env neben dieser Datei, Vorlage ist .env.example.
+      # Die Schreibweise ${VAR:?...} bricht den Start mit einer Meldung ab,
+      # wenn ein Wert fehlt - besser als ein stillschweigender Default, der
+      # dann auf die falsche Datenbank zeigt.
+      MINIS_DB_DSN: ${MINIS_DB_DSN:?MINIS_DB_DSN fehlt - siehe .env.example}
+      MINIS_JWT_SECRET: ${MINIS_JWT_SECRET:?MINIS_JWT_SECRET fehlt - siehe .env.example}
+      # Im Container muss auf allen Schnittstellen gelauscht werden, nicht auf
+      # localhost - sonst ist der Dienst fuer nginx nicht erreichbar. Genau
+      # diese Zeile wurde bisher vor jedem Deployen von Hand geaendert.
+      MINIS_LISTEN_ADDR: ":8080"
+      # Ohne das protokolliert gin jede Anfrage einzeln.
+      GIN_MODE: release
+    # Erlaubt, die Datenbank spaeter auf der VM selbst zu betreiben: dann zeigt
+    # host.docker.internal im DSN auf den Host. Derzeit liegt sie extern, die
+    # Zeile kostet aber nichts und erspart die Suche, falls das umgestellt wird.
     extra_hosts:
-    - "host.docker.internal:host-gateway"
+      - "host.docker.internal:host-gateway"
+
   ui:
     build: ui
-    deploy:
-      mode: replicated
-      replicas: 1
     restart: always
+
   nginx:
-    image: nginx:alpine
+    # Fester Tag statt alpine: sonst wechselt die nginx-Version bei jedem
+    # Neubau unbemerkt.
+    image: nginx:1.30-alpine
     volumes:
-     - ./conf.d:/etc/nginx/conf.d
-     - ./certs:/etc/nginx/certs
+      - ./conf.d:/etc/nginx/conf.d:ro
+      - ./certs:/etc/nginx/certs:ro
     ports:
-    - "33333:33333"
+      - "33333:33333"
     depends_on:
       - ui
       - server

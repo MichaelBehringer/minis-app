@@ -1,3 +1,47 @@
+/*
+ * Globale Basis. Alles, was Farben, Groessen und Abstaende betrifft, gehoert
+ * in src/theme.js (antd-Tokens) - hier steht nur, was Tokens nicht abdecken:
+ * Verhalten des Dokuments und die Safe-Area der installierten App.
+ */
+
+:root {
+  /*
+   * Insets fuer Notch und Home-Indicator.
+   *
+   * Im normalen Browser bewusst 0: dort aendert env(safe-area-inset-bottom)
+   * seinen Wert, waehrend die Adressleiste beim Scrollen ein- und ausfaehrt -
+   * die Bottom-Navigation wuerde dadurch mitten im Scrollen ihre Hoehe
+   * aendern. Ausserdem haelt der Browser den Bereich ueber dem
+   * Home-Indicator schon selbst frei.
+   *
+   * Nur als installierte App gibt es keine Browserleiste, dort sind die
+   * Insets konstant und werden gebraucht.
+   */
+  --safe-top: 0px;
+  --safe-bottom: 0px;
+  --safe-left: 0px;
+  --safe-right: 0px;
+
+  /* Hoehe der Bottom-Navigation, damit Seiteninhalte darunter nicht
+     verschwinden. */
+  --bottom-nav-height: 60px;
+}
+
+@media (display-mode: standalone) {
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+  }
+}
+
+html {
+  /* Verhindert, dass iOS im Querformat die Schrift eigenmaechtig
+     hochskaliert. */
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -5,9 +49,48 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Kein Gummiband-Effekt am Rand der installierten App - das fuehlt sich
+     sonst nach Webseite statt nach App an. */
+  overscroll-behavior-y: none;
+
+  /* Der graue Aufblitz-Kasten beim Antippen auf Android/iOS. antd zeichnet
+     eigene Zustaende, der Doppel-Effekt wirkt unsauber. */
+  -webkit-tap-highlight-color: transparent;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* Nimmt die 300ms Verzoegerung, die mobile Browser vor einem Klick auf einen
+   moeglichen Doppeltipp warten. Betrifft jedes Bedienelement. */
+button,
+a,
+[role='button'],
+.ant-btn,
+.ant-checkbox-wrapper,
+.ant-radio-wrapper,
+.ant-segmented-item {
+  touch-action: manipulation;
+}
+
+/* Lange Tabellenkopf-Texte duerfen umbrechen statt die Spalte aufzublasen. */
+.ant-table-thead .ant-table-cell {
+  word-break: break-word;
+}
+
+/*
+ * Hintergrund des Anmeldebildschirms.
+ *
+ * Das Bild wird bewusst per Media-Query erst ab 768px geladen und nicht ueber
+ * useIsMobile: nur so entsteht die Netzwerkanfrage am Handy gar nicht erst.
+ * Dort verdeckt die Anmeldekarte das Bild ohnehin fast vollstaendig.
+ */
+.login-bg {
+  background: linear-gradient(160deg, #3b2f6b 0%, #5c4b9c 55%, #43356f 100%);
+  background-size: cover;
+  background-position: center;
+}
+
+@media (min-width: 768px) {
+  .login-bg {
+    background-image: url(/background_login.webp);
+  }
 }

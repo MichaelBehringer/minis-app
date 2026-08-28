@@ -1,35 +1,75 @@
-import {useState} from 'react';
+import { useCallback, useState } from 'react'
+
+const SCHLUESSEL = 'jwtToken'
+
+// Der Zugriff auf den Speicher kann werfen - im privaten Modus mancher Browser
+// und wenn Site-Daten gesperrt sind. Das darf die Anmeldung nicht verhindern:
+// scheitert das Ablegen, haelt React das Token weiter im State und die Sitzung
+// endet erst beim Neuladen.
+function lese(name) {
+  try {
+    return globalThis[name]?.getItem(SCHLUESSEL) || null
+  } catch {
+    return null
+  }
+}
+
+function schreibe(name, wert) {
+  try {
+    globalThis[name].setItem(SCHLUESSEL, wert)
+  } catch {
+    // bewusst still - siehe oben
+  }
+}
+
+function entferne(name) {
+  try {
+    globalThis[name]?.removeItem(SCHLUESSEL)
+  } catch {
+    // bewusst still - siehe oben
+  }
+}
 
 // Hooks used for user authentication with Tokens
 function useToken() {
+  const [token, setToken] = useState(
+    () => lese('localStorage') ?? lese('sessionStorage')
+  )
 
-  function getToken() {
-    const userTokenLocal = localStorage.getItem('jwtToken');
-    const userTokenSession = sessionStorage.getItem('jwtToken');
-    return userTokenLocal ? userTokenLocal : userTokenSession ? userTokenSession : null;
-  }
+  const saveToken = useCallback((userToken, remember) => {
+    schreibe(remember ? 'localStorage' : 'sessionStorage', userToken)
+    setToken(userToken)
+  }, [])
 
-  const [token, setToken] = useState(getToken());
-
-  function saveToken(userToken, remember) {
-    if (remember) {
-      localStorage.setItem('jwtToken', userToken);
+  // Ein vom Server erneuertes Token gehoert in denselben Speicher wie das
+  // alte. Wer "Angemeldet bleiben" nicht angekreuzt hat, soll durch die
+  // Verlaengerung nicht doch dauerhaft angemeldet werden - deshalb wird der
+  // Speicherort nicht neu entschieden, sondern der vorhandene beschrieben.
+  const erneuereToken = useCallback((userToken) => {
+    if (lese('localStorage')) {
+      schreibe('localStorage', userToken)
+    } else if (lese('sessionStorage')) {
+      schreibe('sessionStorage', userToken)
     } else {
-      sessionStorage.setItem('jwtToken', userToken);
+      // Zwischenzeitlich abgemeldet - die Antwort einer noch laufenden Anfrage
+      // darf die Sitzung dann nicht wiederbeleben.
+      return
     }
-    setToken(userToken);
-  };
+    setToken(userToken)
+  }, [])
 
-  function removeToken() {
-    localStorage.removeItem("jwtToken");
-    sessionStorage.removeItem("jwtToken");
-    setToken(null);
-  }
+  const removeToken = useCallback(() => {
+    entferne('localStorage')
+    entferne('sessionStorage')
+    setToken(null)
+  }, [])
+
   return {
     setToken: saveToken,
+    erneuereToken,
     token,
-    removeToken
-  };
+    removeToken,
+  }
 }
 
-export default useToken;
+export default useToken

@@ -1,73 +1,215 @@
 package main
 
 import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"log"
 	. "minisAPI/controller"
 	. "minisAPI/middleware"
 	. "minisAPI/models"
 	"net/http"
-	"strconv"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+	// Die Zeitzonendateien in die Binaerdatei einbinden. Das distroless-Image
+	// hat kein /usr/share/zoneinfo - ohne das koennte der Kalender die lokale
+	// Zeit einer Messe nicht nach UTC umrechnen.
+	_ "time/tzdata"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	InitDB()
+	// Fehlt die Datei, bleibt es bei den Umgebungsvariablen des Prozesses.
+	// Im Container werden sie ueber docker-compose gesetzt, lokal ueber
+	// server/.env - siehe .env.example.
+	_ = godotenv.Load()
+
+	// Vor allem anderen: ohne diese Werte wird nichts gestartet. Sie hatten
+	// bisher einen Default im Quellcode, der auf die Produktivdatenbank zeigte.
+	if err := PruefePflichtwerte(); err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	if err := InitDB(); err != nil {
+		log.Fatalf("%v", err)
+	}
 	defer CloseDB()
 
 	router := gin.Default()
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
 	config.AllowHeaders = []string{"Content-Type", "Content-Length", "Accept-Encoding", "Authorization", "Cache-Control"}
+	// Ohne ExposeHeaders liest der Browser den Kopf mit dem erneuerten Token
+	// nicht aus. In Produktion laeuft alles ueber dieselbe Herkunft, in der
+	// Entwicklung ueber den Vite-Proxy - aber AllowAllOrigins steht hier, also
+	// gehoert es sauber gesetzt.
+	config.ExposeHeaders = []string{NeuesTokenHeader}
 
 	router.Use(cors.New(config))
 	router.POST("/login", login)
+
+	// Das Kalender-Abo laeuft ohne Anmeldung: ein Kalenderprogramm ruft die
+	// Adresse immer wieder ab und kann keinen Authorization-Kopf setzen. Der
+	// Token in der Adresse ist deshalb ein eigener, jederzeit neu erzeugbarer
+	// Wert und nicht das JWT der Anwendung.
+	router.GET("/ical/:token", getKalender)
 
 	auth := router.Group("/")
 	auth.Use(AuthUser())
 	auth.GET("/checkToken", checkToken)
 
-	auth.GET("/autoAssign", autoAssign)
+	// Der PDF-Plan enthaelt die Vor- und Nachnamen aller eingeteilten
+	// Ministranten. Er hing bisher an router statt an auth und war damit ohne
+	// Token abrufbar, mit frei waehlbarem Zeitraum ueber ?from=&to=.
+	auth.GET("/pdf/events", AllowMinRole(2), GetEventsPDF)
+	// Der persoenliche Plan zum Ausdrucken. Die eigenen Einsaetze darf jeder
+	// abholen, fremde nur ein Planer.
+	auth.GET("/pdf/events/:userId", AllowSelfOrMinRole(2), getUserPlanPDF)
 
-	router.GET("/pdf/events", GetEventsPDF)
-
-	auth.GET("/events/:userId", getEventsForUser)
-	auth.GET("/events", getEventsByDateRange)
+	// Lesen und Schreiben sind hier gleich zu behandeln: die PATCH-Routen waren
+	// durch AllowSelfOrMinRole geschuetzt, die passenden GETs nicht. Damit
+	// konnte jeder Angemeldete die Sperrtage, Wochentage und Wunschpartner
+	// aller anderen lesen.
+	auth.GET("/events/:userId", AllowSelfOrMinRole(2), getEventsForUser)
+	auth.GET("/events", AllowMinRole(2), getEventsByDateRange)
+	// Der Gesamtplan, bewusst fuer jeden Angemeldeten: bisher sah ein
+	// Ministrant nur seine eigenen Einsaetze, und wer sonst dran ist, stand nur
+	// im PDF ab Rolle 2. Derselbe Plan haengt in der Kirche aus.
+	auth.GET("/plan", getPlan)
 	auth.PATCH("/events/:eventId/assign/add", AllowMinRole(2), addUserToEvent)
 	auth.PATCH("/events/:eventId/assign/remove", AllowMinRole(2), removeUserFromEvent)
 	auth.PUT("/event", AllowMinRole(2), putEvent)
+	// Bearbeiten und Loeschen gab es bisher nicht: ein Tippfehler in Uhrzeit,
+	// Ort oder Sollstaerke war endgueltig.
+	auth.PATCH("/event/:eventId", AllowMinRole(2), patchEvent)
+	auth.DELETE("/event/:eventId", AllowMinRole(2), deleteEvent)
+	// Mehrere Messen auf einmal, fuer eine Serie gleichartiger Termine.
+	auth.PUT("/events", AllowMinRole(2), putEvents)
 
 	auth.GET("/location", getLocations)
+	// Orte waren bisher nur lesbar. In den Daten heisst location 5 ' ' - ein
+	// Leerzeichen - und erscheint als leerer Eintrag in der Auswahl.
+	auth.POST("/location", AllowMinRole(2), createLocation)
+	auth.PATCH("/location/:locationId", AllowMinRole(2), patchLocation)
+	auth.DELETE("/location/:locationId", AllowMinRole(2), deleteLocation)
+	// Die bisher verwendeten Messenamen, fuer die Vorschlagsliste beim Anlegen.
+	auth.GET("/eventNames", AllowMinRole(2), getEventNames)
+	auth.GET("/role", AllowMinRole(2), getRoles)
 
+	// Bleibt fuer alle Angemeldeten lesbar: die Liste dient der Auswahl der
+	// Wunschpartner, die jeder fuer sich selbst pflegen darf. Sie enthaelt nur
+	// Id und Namen der aktiven Ministranten.
 	auth.GET("/userHead", getAllUserHead)
-	auth.GET("/user", getAllUser)
-	auth.GET("/user/:userId", getUser)
+
+	auth.GET("/user", AllowMinRole(2), getAllUser)
+	// Anlegen war bisher nur in der Datenbank moeglich - es gab weder Route
+	// noch INSERT im Code.
+	auth.POST("/user", AllowMinRole(2), createUser)
+	auth.GET("/user/:userId", AllowSelfOrMinRole(2), getUser)
 	auth.PATCH("/user/:userId", AllowSelfOrMinRole(2), updateUser)
 	auth.PATCH("/user/:userId/password", AllowSelfOrMinRole(2), updateUserPassword)
-	auth.GET("/user/:userId/ban", getUserBanDates)
+	auth.GET("/user/:userId/ban", AllowSelfOrMinRole(2), getUserBanDates)
 	auth.PATCH("/user/:userId/ban", AllowSelfOrMinRole(2), updateUserBanDates)
-	auth.GET("/user/:userId/weekday", getUserWeekdays)
+	// Ganzer Zeitraum auf einmal. Zwei Wochen Urlaub sind damit eine Anfrage
+	// statt vierzehn.
+	auth.PATCH("/user/:userId/ban/range", AllowSelfOrMinRole(2), updateUserBanRange)
+	auth.GET("/user/:userId/weekday", AllowSelfOrMinRole(2), getUserWeekdays)
 	auth.PATCH("/user/:userId/weekday", AllowSelfOrMinRole(2), updateUserWeekday)
 	auth.PATCH("/user/:userId/preferred", AllowSelfOrMinRole(2), updateUserPreferred)
-	auth.GET("/user/:userId/preferred", getUserPreferred)
+	auth.GET("/user/:userId/preferred", AllowSelfOrMinRole(2), getUserPreferred)
 	auth.GET("/event/:eventId/assignment-options", AllowMinRole(2), getEventAssignmentOptions)
+	// Ein einzelner Termin als Kalenderdatei, fuer die, die nichts abonnieren
+	// wollen. Derselbe Inhalt wie im Gesamtplan, also fuer alle Angemeldeten.
+	auth.GET("/event/:eventId/ics", getTerminKalender)
 
-	router.Run("localhost:8080")
+	// Der persoenliche Kalender-Link. Nur fuer die eigene Id, auch fuer einen
+	// Admin nicht fremd - siehe AllowSelfOnly.
+	auth.GET("/user/:userId/calendar", AllowSelfOnly(), getKalenderLink)
+	auth.POST("/user/:userId/calendar", AllowSelfOnly(), postKalenderLink)
+
+	starteServer(router)
+}
+
+// starteServer laesst den Server laufen und beendet ihn geordnet.
+//
+// Vorher stand hier router.Run(). Das kehrt nie zurueck, weshalb das
+// defer CloseDB() in main bei einem SIGTERM - also bei jedem
+// "docker compose down" - nie ausgefuehrt wurde. Und ohne Zeitgrenzen am
+// http.Server kann eine haengende Verbindung beliebig lange eine Ressource
+// halten.
+func starteServer(handler http.Handler) {
+	adresse := Env("MINIS_LISTEN_ADDR", "localhost:8080")
+
+	srv := &http.Server{
+		Addr:    adresse,
+		Handler: handler,
+		// Grosszuegig, aber nicht unbegrenzt: die PDF-Erzeugung ueber einen
+		// langen Zeitraum darf nicht in ein Zeitlimit laufen.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	go func() {
+		log.Printf("Server lauscht auf %s", adresse)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server konnte nicht starten: %v", err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	log.Println("Server wird beendet")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("Beim Beenden: %v", err)
+	}
+}
+
+// serverFehler protokolliert den Grund und antwortet ohne ihn.
+//
+// Der Grund gehoert ins Log und nicht in die Antwort: er nennt Tabellen- und
+// Spaltennamen. Vorher wurden Datenbankfehler gar nicht gemeldet - die
+// Anwendung bekam 200 mit einer leeren Liste und zeigte "keine Daten".
+func serverFehler(c *gin.Context, was string, err error) {
+	log.Printf("%s: %v", was, err)
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Die Anfrage konnte nicht bearbeitet werden"})
 }
 
 func login(c *gin.Context) {
 	var login Login
-	c.BindJSON(&login)
-	retJWT := DoLogin(login, c)
-	c.IndentedJSON(http.StatusOK, retJWT)
-}
+	if err := c.ShouldBindJSON(&login); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ungueltige Anfrage"})
+		return
+	}
 
-func autoAssign(c *gin.Context) {
+	token, err := DoLogin(login)
+	if errors.Is(err, ErrAnmeldungFehlgeschlagen) {
+		// Absichtlich ohne Angabe, ob der Benutzername oder das Passwort nicht
+		// gestimmt hat - sonst laesst sich damit pruefen, welche Konten es gibt.
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Benutzername oder Passwort ist falsch"})
+		return
+	}
+	if err != nil {
+		// Technischer Fehler, etwa eine nicht erreichbare Datenbank. Der Grund
+		// gehoert ins Log und nicht in die Antwort.
+		log.Printf("Anmeldung fehlgeschlagen (technisch): %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Anmeldung derzeit nicht moeglich"})
+		return
+	}
 
-	eventId := c.Query("eventId")
-	i, _ := strconv.Atoi(eventId)
-	AssignUsersToEvent(i, GetDB())
-	c.IndentedJSON(http.StatusOK, "ok")
+	c.IndentedJSON(http.StatusOK, token)
 }
 
 func checkToken(c *gin.Context) {
@@ -76,8 +218,11 @@ func checkToken(c *gin.Context) {
 }
 
 func getEventsForUser(c *gin.Context) {
-	userId := c.Param("userId")
-	events := GetEventsForUser(userId)
+	events, err := GetEventsForUser(c.Param("userId"))
+	if err != nil {
+		serverFehler(c, "Einsaetze laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, events)
 }
 
@@ -85,8 +230,35 @@ func getEventsByDateRange(c *gin.Context) {
 	from := c.Query("from")
 	to := c.Query("to")
 
-	events := GetEventsByDateRange(from, to)
+	events, err := GetEventsByDateRange(from, to)
+	if err != nil {
+		serverFehler(c, "Messen im Zeitraum laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, events)
+}
+
+func getPlan(c *gin.Context) {
+	von := c.Query("from")
+	bis := c.Query("to")
+	if von == "" || bis == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "from und to sind noetig"})
+		return
+	}
+
+	// Dieselbe Grenze wie beim Sperren eines Zeitraums: ohne sie kann ein
+	// Aufruf den ganzen Bestand samt Namen in einem Rutsch abholen.
+	if _, _, err := ZeitraumGrenzen(von, bis); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	plan, err := GetPlanByDateRange(von, bis)
+	if err != nil {
+		serverFehler(c, "Plan laden", err)
+		return
+	}
+	c.JSON(http.StatusOK, plan)
 }
 
 func addUserToEvent(c *gin.Context) {
@@ -97,13 +269,22 @@ func addUserToEvent(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid JSON"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
 
-	AddUserToEvent(eventId, payload.UserId)
+	err := AddUserToEvent(eventId, payload.UserId)
+	if errors.Is(err, ErrBereitsEingeteilt) {
+		// Fachlich kein Fehler: der gewuenschte Zustand liegt schon vor.
+		c.JSON(http.StatusOK, gin.H{"status": "added"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Einteilen", err)
+		return
+	}
 
-	c.JSON(200, gin.H{"status": "added"})
+	c.JSON(http.StatusOK, gin.H{"status": "added"})
 }
 
 func removeUserFromEvent(c *gin.Context) {
@@ -114,61 +295,343 @@ func removeUserFromEvent(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid JSON"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
 
-	RemoveUserFromEvent(eventId, payload.UserId)
+	if err := RemoveUserFromEvent(eventId, payload.UserId); err != nil {
+		serverFehler(c, "Einteilung entfernen", err)
+		return
+	}
 
-	c.JSON(200, gin.H{"status": "removed"})
+	c.JSON(http.StatusOK, gin.H{"status": "removed"})
 }
 
 func getLocations(c *gin.Context) {
-	locations := GetLocations()
-	c.IndentedJSON(200, locations)
+	locations, err := GetLocations()
+	if err != nil {
+		serverFehler(c, "Orte laden", err)
+		return
+	}
+	c.IndentedJSON(http.StatusOK, locations)
+}
+
+func createLocation(c *gin.Context) {
+	name, ok := ortsnameAusAnfrage(c)
+	if !ok {
+		return
+	}
+
+	id, err := CreateLocation(name)
+	if err != nil {
+		serverFehler(c, "Ort anlegen", err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"id": id})
+}
+
+func patchLocation(c *gin.Context) {
+	name, ok := ortsnameAusAnfrage(c)
+	if !ok {
+		return
+	}
+
+	err := UpdateLocation(c.Param("locationId"), name)
+	if errors.Is(err, ErrOrtNichtGefunden) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Ort speichern", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "updated"})
+}
+
+func deleteLocation(c *gin.Context) {
+	err := DeleteLocation(c.Param("locationId"))
+	if errors.Is(err, ErrOrtNichtGefunden) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if errors.Is(err, ErrOrtInBenutzung) {
+		// 409, nicht 500: die Anfrage war in Ordnung, der Ort ist belegt - und
+		// die Zahl der Messen steht in der Meldung.
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Ort loeschen", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+}
+
+// Ein Ortsname ohne Inhalt ist genau der Fall, der in den Daten steht:
+// location 5 heisst ' '. TrimSpace und die Pruefung verhindern die
+// Wiederholung.
+func ortsnameAusAnfrage(c *gin.Context) (string, bool) {
+	var payload struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ungueltige Anfrage"})
+		return "", false
+	}
+
+	name := strings.TrimSpace(payload.Name)
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Der Name darf nicht leer sein"})
+		return "", false
+	}
+	return name, true
+}
+
+func getEventNames(c *gin.Context) {
+	namen, err := GetEventNames()
+	if err != nil {
+		serverFehler(c, "Messenamen laden", err)
+		return
+	}
+	c.JSON(http.StatusOK, namen)
+}
+
+func getRoles(c *gin.Context) {
+	roles, err := GetRoles()
+	if err != nil {
+		serverFehler(c, "Rollen laden", err)
+		return
+	}
+	c.IndentedJSON(http.StatusOK, roles)
 }
 
 func putEvent(c *gin.Context) {
 	var ev Event
-	if err := c.BindJSON(&ev); err != nil {
-		c.JSON(400, gin.H{"error": "invalid payload"})
+	if err := c.ShouldBindJSON(&ev); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
 
-	id := CreateEvent(ev)
+	id, err := CreateEvent(ev)
+	if err != nil {
+		serverFehler(c, "Messe anlegen", err)
+		return
+	}
 
-	c.JSON(200, gin.H{
+	c.JSON(http.StatusOK, gin.H{
 		"status": "created",
 		"id":     id,
 	})
 }
 
+func patchEvent(c *gin.Context) {
+	var ev Event
+	if err := c.ShouldBindJSON(&ev); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ungueltige Anfrage"})
+		return
+	}
+
+	err := UpdateEvent(c.Param("eventId"), ev)
+	if errors.Is(err, ErrMesseNichtGefunden) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Messe speichern", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "updated"})
+}
+
+func deleteEvent(c *gin.Context) {
+	entfernt, err := DeleteEvent(c.Param("eventId"))
+	if errors.Is(err, ErrMesseNichtGefunden) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Messe loeschen", err)
+		return
+	}
+
+	// Die Zahl der mitgeloeschten Einteilungen geht zurueck, damit die
+	// Anwendung sie melden kann - "3 Einteilungen mit entfernt" ist die
+	// Information, die dabei zaehlt.
+	c.JSON(http.StatusOK, gin.H{"status": "deleted", "removedAssignments": entfernt})
+}
+
+// putEvents legt eine Serie gleichartiger Messen an.
+//
+// Die Termine berechnet die Anwendung und zeigt sie vorher als Vorschau;
+// angelegt wird genau diese Liste. Alles in einer Transaktion, damit keine
+// halbe Serie entsteht.
+func putEvents(c *gin.Context) {
+	var batch EventBatch
+	if err := c.ShouldBindJSON(&batch); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+	if len(batch.Events) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "keine Termine uebergeben"})
+		return
+	}
+	// Obergrenze als Schutz vor einem Tippfehler im Zeitraum - ein
+	// versehentlich auf Jahre gestellter Bereich soll nicht hunderte Messen
+	// anlegen, die dann von Hand wieder weg muessen.
+	if len(batch.Events) > 200 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "zu viele Termine auf einmal (maximal 200)"})
+		return
+	}
+
+	ids, err := CreateEvents(batch.Events)
+	if err != nil {
+		serverFehler(c, "Serie anlegen", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "created",
+		"ids":    ids,
+		"count":  len(ids),
+	})
+}
+
 func getAllUserHead(c *gin.Context) {
-	users := GetAllUserHead()
+	users, err := GetAllUserHead()
+	if err != nil {
+		serverFehler(c, "Ministrantenliste laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, users)
 }
 
 func getAllUser(c *gin.Context) {
-	users := GetAllUser()
+	users, err := GetAllUser()
+	if err != nil {
+		serverFehler(c, "Benutzer laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, users)
 }
 
 func getUser(c *gin.Context) {
-	userId := c.Param("userId")
-	user := GetUser(userId)
+	user, err := GetUser(c.Param("userId"))
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Diesen Ministranten gibt es nicht"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Benutzer laden", err)
+		return
+	}
+
+	// Die Bemerkung ist eine Notiz des Ministrantenrats. Ein Ministrant darf
+	// seine eigenen Daten lesen (AllowSelfOrMinRole) - diese Zeile aber nicht.
+	if rolle, ok := ClaimZahl(c, "roleId"); !ok || rolle < 2 {
+		user.Note = ""
+	}
+
 	c.IndentedJSON(http.StatusOK, user)
 }
 
 func updateUser(c *gin.Context) {
 	userId := c.Param("userId")
 	var payload User
-	if err := c.BindJSON(&payload); err != nil {
+	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
-	UpdateUser(userId, payload)
+
+	eigeneRolle, okRolle := ClaimZahl(c, "roleId")
+	eigeneId, okId := ClaimZahl(c, "userId")
+	if !okRolle || !okId {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Der gespeicherte Stand entscheidet, ob ueberhaupt eine Aenderung
+	// vorliegt. Die Maske schickt immer alle Felder, auch die unveraenderten.
+	vorher, err := GetUser(userId)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Diesen Ministranten gibt es nicht"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Benutzer laden", err)
+		return
+	}
+
+	if eigeneRolle < 2 {
+		// Rolle, Aktiv-Schalter und Weihrauch sind in der Maske gesperrt. Ohne
+		// diese Zeilen gilt das nur dort: ein Aufruf per curl konnte damit die
+		// eigene Rolle setzen oder sich als Weihrauchtraeger eintragen.
+		payload.RoleId = vorher.RoleId
+		payload.Active = vorher.Active
+		payload.Incense = vorher.Incense
+		// Die Bemerkung gehoert dem Ministrantenrat. Sie wird einem Ministranten
+		// nicht ausgeliefert (siehe getUser) und darf von ihm deshalb auch nicht
+		// geschrieben werden - ein leeres Feld wuerde sie sonst loeschen.
+		payload.Note = vorher.Note
+	} else if err := PruefeRollenwechsel(eigeneRolle, eigeneId, vorher.Id, vorher.RoleId, payload.RoleId); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := UpdateUser(userId, payload); err != nil {
+		serverFehler(c, "Benutzer speichern", err)
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "updated"})
+}
+
+func createUser(c *gin.Context) {
+	var payload NeuerBenutzer
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	payload.Firstname = strings.TrimSpace(payload.Firstname)
+	payload.Lastname = strings.TrimSpace(payload.Lastname)
+	payload.Username = strings.TrimSpace(payload.Username)
+
+	if payload.Firstname == "" || payload.Lastname == "" || payload.Username == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Vorname, Nachname und Benutzername sind nötig"})
+		return
+	}
+	if payload.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Passwort darf nicht leer sein"})
+		return
+	}
+
+	eigeneRolle, ok := ClaimZahl(c, "roleId")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	// Ohne Angabe der niedrigste Fall: ein Ministrant.
+	if payload.RoleId == 0 {
+		payload.RoleId = 1
+	}
+	if err := PruefeRollenvergabe(eigeneRolle, payload.RoleId); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	id, err := CreateUser(payload)
+	if errors.Is(err, ErrBenutzernameVergeben) {
+		// 409, nicht 500: die Anfrage war in Ordnung, der Name ist belegt.
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Benutzer anlegen", err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"id": id})
 }
 
 func updateUserPassword(c *gin.Context) {
@@ -178,18 +641,28 @@ func updateUserPassword(c *gin.Context) {
 		Password string `json:"password"`
 	}
 
-	if err := c.BindJSON(&payload); err != nil {
+	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
+	if payload.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Passwort darf nicht leer sein"})
+		return
+	}
 
-	UpdatePassword(userId, payload.Password)
+	if err := UpdatePassword(userId, payload.Password); err != nil {
+		serverFehler(c, "Passwort speichern", err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "password changed"})
 }
 
 func getUserBanDates(c *gin.Context) {
-	userId := c.Param("userId")
-	bans := GetBanDates(userId)
+	bans, err := GetBanDates(c.Param("userId"))
+	if err != nil {
+		serverFehler(c, "Sperrtage laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, bans)
 }
 
@@ -198,21 +671,57 @@ func updateUserBanDates(c *gin.Context) {
 
 	var update SingleBanDateUpdate
 	if err := c.ShouldBindJSON(&update); err != nil {
-		c.JSON(400, gin.H{"error": "invalid payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
 
+	var err error
 	if update.Add {
-		AddBlockDate(userId, update.Date)
+		err = AddBlockDate(userId, update.Date)
 	} else {
-		RemoveBlockDate(userId, update.Date)
+		err = RemoveBlockDate(userId, update.Date)
 	}
-	c.JSON(200, gin.H{"status": "ok"})
+	if err != nil {
+		serverFehler(c, "Sperrtag speichern", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func updateUserBanRange(c *gin.Context) {
+	userId := c.Param("userId")
+
+	var update BanRangeUpdate
+	if err := c.ShouldBindJSON(&update); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+
+	var anzahl int
+	var err error
+	if update.Add {
+		anzahl, err = AddBlockDates(userId, update.From, update.To)
+	} else {
+		anzahl, err = RemoveBlockDates(userId, update.From, update.To)
+	}
+
+	if err != nil {
+		// Ein unlesbares Datum oder ein zu grosser Zeitraum ist ein Fehler der
+		// Anfrage, kein Serverfehler - und der Grund ist fuer den Nutzer
+		// verwertbar ("Zeitraum umfasst 400 Tage").
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "count": anzahl})
 }
 
 func getUserWeekdays(c *gin.Context) {
-	userId := c.Param("userId")
-	weekdays := GetUserWeekdays(userId)
+	weekdays, err := GetUserWeekdays(c.Param("userId"))
+	if err != nil {
+		serverFehler(c, "Wochentage laden", err)
+		return
+	}
 	c.IndentedJSON(http.StatusOK, weekdays)
 }
 
@@ -221,17 +730,22 @@ func updateUserWeekday(c *gin.Context) {
 
 	var update SingleWeekdayUpdate
 	if err := c.ShouldBindJSON(&update); err != nil {
-		c.JSON(400, gin.H{"error": "invalid payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
 
+	var err error
 	if update.Add {
-		AddUserWeekday(userId, update.Weekday)
+		err = AddUserWeekday(userId, update.Weekday)
 	} else {
-		RemoveUserWeekday(userId, update.Weekday)
+		err = RemoveUserWeekday(userId, update.Weekday)
+	}
+	if err != nil {
+		serverFehler(c, "Wochentag speichern", err)
+		return
 	}
 
-	c.JSON(200, gin.H{"status": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func updateUserPreferred(c *gin.Context) {
@@ -239,40 +753,77 @@ func updateUserPreferred(c *gin.Context) {
 
 	var update PreferredUpdate
 	if err := c.ShouldBindJSON(&update); err != nil {
-		c.JSON(400, gin.H{"error": "invalid payload"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
 		return
 	}
 
+	var err error
 	if update.Add {
-		AddPreferredUser(userId, update.OtherUserId)
+		err = AddPreferredUser(userId, update.OtherUserId)
 	} else {
-		RemovePreferredUser(userId, update.OtherUserId)
+		err = RemovePreferredUser(userId, update.OtherUserId)
+	}
+	if err != nil {
+		serverFehler(c, "Wunschpartner speichern", err)
+		return
 	}
 
-	c.JSON(200, gin.H{"status": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func getUserPreferred(c *gin.Context) {
-	userId := c.Param("userId")
+	data, err := GetPreferredUsers(c.Param("userId"))
+	if err != nil {
+		serverFehler(c, "Wunschpartner laden", err)
+		return
+	}
 
-	data := GetPreferredUsers(userId)
-
-	c.JSON(200, data)
+	c.JSON(http.StatusOK, data)
 }
 
 func GetEventsPDF(c *gin.Context) {
 	fromStr := c.Query("from")
 	toStr := c.Query("to")
 
-	// PDF erzeugen
 	pdfBytes, err := CreateEventPlanPDF(GetDB(), fromStr, toStr)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "PDF konnte nicht erzeugt werden", "details": err.Error()})
+		serverFehler(c, "PDF erzeugen", err)
 		return
 	}
 
-	// Download Header
 	c.Header("Content-Disposition", "attachment; filename=Miniplan.pdf")
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+func getUserPlanPDF(c *gin.Context) {
+	userId := c.Param("userId")
+
+	person, err := GetUser(userId)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Diesen Ministranten gibt es nicht"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Benutzer laden", err)
+		return
+	}
+
+	// Standardmaessig ab heute: ein Ausdruck mit den Einsaetzen des letzten
+	// Jahres ist nicht das, was an den Kuehlschrank gehoert. Mit ?from= laesst
+	// sich ein anderer Anfang setzen.
+	ab := c.Query("from")
+	if ab == "" {
+		ab = time.Now().Format("2006-01-02")
+	}
+
+	name := strings.TrimSpace(person.Firstname + " " + person.Lastname)
+	pdfBytes, err := CreateUserPlanPDF(userId, name, ab)
+	if err != nil {
+		serverFehler(c, "PDF erzeugen", err)
+		return
+	}
+
+	c.Header("Content-Disposition", "attachment; filename=Meine-Einsaetze.pdf")
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
@@ -288,4 +839,73 @@ func getEventAssignmentOptions(c *gin.Context) {
 	}
 
 	c.IndentedJSON(http.StatusOK, options)
+}
+
+// --- Kalender -----------------------------------------------------------------
+
+func getKalender(c *gin.Context) {
+	ics, err := KalenderFuerBenutzer(c.Param("token"))
+	if errors.Is(err, ErrKalenderTokenUnbekannt) {
+		// 404 und kein 401: hier gibt es keine Anmeldung, an der etwas
+		// scheitern koennte.
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Kalender erzeugen", err)
+		return
+	}
+
+	kalenderAusliefern(c, "ministrieren.ics", ics)
+}
+
+func getTerminKalender(c *gin.Context) {
+	ev, ics, err := KalenderFuerTermin(c.Param("eventId"))
+	if errors.Is(err, ErrMesseNichtGefunden) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Termin erzeugen", err)
+		return
+	}
+
+	kalenderAusliefern(c, fmt.Sprintf("messe-%s.ics", ev.DateBegin), ics)
+}
+
+func kalenderAusliefern(c *gin.Context, dateiname string, ics string) {
+	c.Header("Content-Type", "text/calendar; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=%q", dateiname))
+	// Ein Kalender-Abo soll den neuen Stand sehen, nicht den aus dem Cache.
+	c.Header("Cache-Control", "no-cache")
+	c.String(http.StatusOK, ics)
+}
+
+func getKalenderLink(c *gin.Context) {
+	token, err := KalenderToken(c.Param("userId"))
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Diesen Ministranten gibt es nicht"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Kalender-Link laden", err)
+		return
+	}
+
+	// Leer heisst: noch kein Abo eingerichtet. Kein Fehler.
+	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
+func postKalenderLink(c *gin.Context) {
+	token, err := NeuerKalenderToken(c.Param("userId"))
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Diesen Ministranten gibt es nicht"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Kalender-Link erzeugen", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"token": token})
 }
