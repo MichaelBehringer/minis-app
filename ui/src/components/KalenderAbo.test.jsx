@@ -19,6 +19,14 @@ async function rueckfrage() {
   })
 }
 
+// navigator.userAgent ist schreibgeschuetzt; fuer den Android-Fall wird er
+// gezielt ueberschrieben und danach zurueckgesetzt.
+const echterUA = navigator.userAgent
+
+function setzeUA(wert) {
+  Object.defineProperty(navigator, 'userAgent', { value: wert, configurable: true })
+}
+
 function zeige() {
   render(
     <AppProviders>
@@ -28,6 +36,7 @@ function zeige() {
 }
 
 beforeEach(() => {
+  setzeUA(echterUA)
   helper.doGetRequestAuth.mockReset()
   helper.doPostRequestAuth.mockReset()
   helper.doGetRequestAuth.mockResolvedValue({ data: { token: '' } })
@@ -69,6 +78,48 @@ describe('KalenderAbo', () => {
     const knopf = await screen.findByRole('link', { name: /Im Kalender abonnieren/ })
     expect(knopf).toHaveAttribute('href', expect.stringContaining('webcal:'))
     expect(knopf).toHaveAttribute('href', expect.stringContaining('/server/ical/abc123'))
+  })
+
+  it('verlinkt zum Abonnieren über Google', async () => {
+    // Google Kalender kann eine Adresse nur über die Weboberfläche abonnieren -
+    // dieser Link springt direkt in deren Bestätigungsdialog.
+    helper.doGetRequestAuth.mockResolvedValue({ data: { token: 'abc123' } })
+    zeige()
+
+    const knopf = await screen.findByRole('link', {
+      name: /Im Google Kalender abonnieren/,
+    })
+    // webcal, nicht https: mit https lehnt Google den Link ab ("Hinzufügen
+    // nicht möglich - URL überprüfen").
+    const ziel = encodeURIComponent(`webcal://${window.location.host}/server/ical/abc123`)
+    expect(knopf).toHaveAttribute(
+      'href',
+      `https://calendar.google.com/calendar/render?cid=${ziel}`
+    )
+    // Aus einer installierten PWA heraus gäbe es sonst keinen Weg zurück.
+    expect(knopf).toHaveAttribute('target', '_blank')
+  })
+
+  it('stellt auf Android den Google-Weg voran', async () => {
+    // Auf Android meldet sich keine Kalender-App für webcal:// an, der Klick
+    // verpufft dort ohne Meldung. Deshalb steht Google oben.
+    setzeUA('Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/151.0.0.0')
+    helper.doGetRequestAuth.mockResolvedValue({ data: { token: 'abc123' } })
+    zeige()
+
+    await screen.findByRole('link', { name: /Im Google Kalender abonnieren/ })
+    const links = screen.getAllByRole('link')
+    expect(links[0]).toHaveAccessibleName(/Im Google Kalender abonnieren/)
+  })
+
+  it('stellt ohne Android webcal voran', async () => {
+    setzeUA('Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1')
+    helper.doGetRequestAuth.mockResolvedValue({ data: { token: 'abc123' } })
+    zeige()
+
+    await screen.findByRole('link', { name: /Im Kalender abonnieren/ })
+    const links = screen.getAllByRole('link')
+    expect(links[0]).toHaveAccessibleName(/Im Kalender abonnieren/)
   })
 
   it('warnt, dass der Link ein Schlüssel ist', async () => {

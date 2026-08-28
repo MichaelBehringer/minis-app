@@ -8,7 +8,12 @@ import {
   Spin,
   Typography,
 } from 'antd'
-import { CalendarOutlined, CopyOutlined, ReloadOutlined } from '@ant-design/icons'
+import {
+  CalendarOutlined,
+  CopyOutlined,
+  GoogleOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons'
 import { doGetRequestAuth, doPostRequestAuth } from '../helper/RequestHelper'
 import { myToastError, myToastInfo, myToastSuccess } from '../helper/ToastHelper'
 
@@ -28,11 +33,38 @@ function abschnittUrl(token) {
   return `${window.location.origin}/server/ical/${token}`
 }
 
-// webcal:// öffnet auf iOS und macOS direkt den Abonnieren-Dialog. Android
-// versteht es je nach Kalender-App; deshalb steht die kopierbare Adresse
-// daneben und nicht nur der Knopf.
+// webcal:// öffnet auf iOS, macOS, Outlook und Thunderbird direkt den
+// Abonnieren-Dialog.
+//
+// Auf Android führt dieser Weg nie zum Ziel: kein Android-Kalender meldet sich
+// für das Schema an, der Klick verpufft dann ohne jede Meldung. Deshalb steht
+// daneben der Weg über Google.
 function webcalUrl(token) {
   return abschnittUrl(token).replace(/^https?:/, 'webcal:')
+}
+
+// Google Kalender abonniert eine Adresse nur über die Weboberfläche - die
+// Android-App hat dafür keine Funktion. Dieser Link springt direkt in deren
+// Bestätigungsdialog und erspart das Kopieren und Einfügen am PC.
+//
+// In cid muss die webcal-Adresse stehen, nicht die https-Adresse. Mit https
+// antwortet Google mit "Hinzufügen nicht möglich - URL überprüfen" und legt
+// nichts an. Das gilt nur für diesen Link: im Formular unter "Per URL" von
+// Hand ist umgekehrt die https-Adresse richtig.
+//
+// Der angelegte Eintrag zeigt danach webcal:// als Adresse. Das ist richtig so
+// - Google holt den Feed intern über https.
+function googleUrl(token) {
+  const ziel = encodeURIComponent(webcalUrl(token))
+  return `https://calendar.google.com/calendar/render?cid=${ziel}`
+}
+
+// Auf Android ist der Google-Weg der einzige, der mit einem Druck funktioniert,
+// sonst ist webcal:// der direktere. Der jeweils andere Knopf bleibt sichtbar:
+// wer auf Android einen anderen Kalender nutzt oder am PC Google will, käme
+// sonst nicht weiter.
+function bevorzugtGoogle() {
+  return /Android/i.test(navigator.userAgent)
 }
 
 export default function KalenderAbo({ userId, token }) {
@@ -104,6 +136,36 @@ export default function KalenderAbo({ userId, token }) {
     )
   }
 
+  // Der passende Weg zuerst und hervorgehoben, der andere darunter.
+  const googleZuerst = bevorzugtGoogle()
+  const knoepfe = [
+    <Button
+      key="webcal"
+      type={googleZuerst ? 'default' : 'primary'}
+      block
+      size="large"
+      icon={<CalendarOutlined aria-hidden />}
+      href={webcalUrl(feedToken)}
+    >
+      Im Kalender abonnieren
+    </Button>,
+    <Button
+      key="google"
+      type={googleZuerst ? 'primary' : 'default'}
+      block
+      size="large"
+      icon={<GoogleOutlined aria-hidden />}
+      href={googleUrl(feedToken)}
+      // Ohne das ersetzt Google die App im selben Tab - aus einer installierten
+      // PWA heraus gäbe es dann keinen Weg zurück.
+      target="_blank"
+      rel="noreferrer"
+    >
+      Im Google Kalender abonnieren
+    </Button>,
+  ]
+  if (googleZuerst) knoepfe.reverse()
+
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
@@ -124,15 +186,12 @@ export default function KalenderAbo({ userId, token }) {
         </Button>
       ) : (
         <>
-          <Button
-            type="primary"
-            block
-            size="large"
-            icon={<CalendarOutlined aria-hidden />}
-            href={webcalUrl(feedToken)}
-          >
-            Im Kalender abonnieren
-          </Button>
+          {knoepfe}
+
+          <Typography.Text type="secondary" style={{ display: 'block' }}>
+            Google holt sich Änderungen nur etwa einmal am Tag. Apple Kalender
+            und die meisten anderen sind schneller.
+          </Typography.Text>
 
           <div>
             <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
