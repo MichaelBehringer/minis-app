@@ -13,6 +13,7 @@ import {
 import {
   CalendarOutlined,
   ClockCircleOutlined,
+  DownloadOutlined,
   EnvironmentOutlined,
   TeamOutlined,
 } from '@ant-design/icons'
@@ -126,6 +127,26 @@ export default function Home({ userId, token }) {
   const [loading, setLoading] = useState(true)
   const [ansicht, setAnsicht] = useState('liste')
 
+  // Der eigene Plan zum Ausdrucken. Für die, die nichts abonnieren wollen und
+  // ihn an den Kühlschrank hängen.
+  const [pdfLaeuft, setPdfLaeuft] = useState(false)
+  const planHerunterladen = async () => {
+    setPdfLaeuft(true)
+    try {
+      const res = await doGetRequestBlobAuth(`pdf/events/${userId}`, token)
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'Meine-Einsaetze.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      myToastError('Plan konnte nicht erzeugt werden')
+    } finally {
+      setPdfLaeuft(false)
+    }
+  }
+
   // Einen einzelnen Termin als Kalenderdatei. Als Blob mit Token, weil der
   // Endpunkt angemeldet ist - ein einfacher Link kann keinen Kopf setzen.
   const inKalender = async (ev) => {
@@ -223,6 +244,20 @@ export default function Home({ userId, token }) {
               { label: `Vergangene (${vergangene.length})`, value: 'vergangen' },
             ]}
           />
+
+          {/* Nur bei den kommenden: ein Ausdruck der Vergangenheit gehört
+              nicht an den Kühlschrank. */}
+          {!zeigeVergangene && kommende.length > 0 && (
+            <Button
+              block
+              icon={<DownloadOutlined aria-hidden />}
+              loading={pdfLaeuft}
+              onClick={planHerunterladen}
+              style={{ marginBottom: 12 }}
+            >
+              Meine Einsätze als PDF
+            </Button>
+          )}
 
           {liste.length === 0 ? (
             <Empty

@@ -69,6 +69,9 @@ func main() {
 	// Ministranten. Er hing bisher an router statt an auth und war damit ohne
 	// Token abrufbar, mit frei waehlbarem Zeitraum ueber ?from=&to=.
 	auth.GET("/pdf/events", AllowMinRole(2), GetEventsPDF)
+	// Der persoenliche Plan zum Ausdrucken. Die eigenen Einsaetze darf jeder
+	// abholen, fremde nur ein Planer.
+	auth.GET("/pdf/events/:userId", AllowSelfOrMinRole(2), getUserPlanPDF)
 
 	// Lesen und Schreiben sind hier gleich zu behandeln: die PATCH-Routen waren
 	// durch AllowSelfOrMinRole geschuetzt, die passenden GETs nicht. Damit
@@ -789,6 +792,38 @@ func GetEventsPDF(c *gin.Context) {
 	}
 
 	c.Header("Content-Disposition", "attachment; filename=Miniplan.pdf")
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+func getUserPlanPDF(c *gin.Context) {
+	userId := c.Param("userId")
+
+	person, err := GetUser(userId)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Diesen Ministranten gibt es nicht"})
+		return
+	}
+	if err != nil {
+		serverFehler(c, "Benutzer laden", err)
+		return
+	}
+
+	// Standardmaessig ab heute: ein Ausdruck mit den Einsaetzen des letzten
+	// Jahres ist nicht das, was an den Kuehlschrank gehoert. Mit ?from= laesst
+	// sich ein anderer Anfang setzen.
+	ab := c.Query("from")
+	if ab == "" {
+		ab = time.Now().Format("2006-01-02")
+	}
+
+	name := strings.TrimSpace(person.Firstname + " " + person.Lastname)
+	pdfBytes, err := CreateUserPlanPDF(userId, name, ab)
+	if err != nil {
+		serverFehler(c, "PDF erzeugen", err)
+		return
+	}
+
+	c.Header("Content-Disposition", "attachment; filename=Meine-Einsaetze.pdf")
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 

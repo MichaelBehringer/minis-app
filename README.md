@@ -217,6 +217,18 @@ von ihm angenommen. In `/userHead` — die Liste, die jeder Angemeldete für die
 Wunschpartner-Auswahl lesen darf — und im PDF-Plan erscheinen die Spalten
 nicht.
 
+## Der Plan als PDF
+
+Zwei Layouts, beide über `go-pdf/fpdf`:
+
+| Route | Rechte | Inhalt |
+|---|---|---|
+| `GET /pdf/events?from=&to=` | ab Rolle 2 | der Aushang: je Messe eine Namensliste |
+| `GET /pdf/events/:userId?from=` | eigene Id oder ab Rolle 2 | der persönliche Plan: eine Zeile je Termin, mit Uhrzeit, Ort und den Mitzugeteilten |
+
+Der persönliche Plan beginnt ohne `from` bei heute — ein Ausdruck mit den
+Einsätzen des letzten Jahres gehört nicht an den Kühlschrank.
+
 ## Kalender-Abo
 
 Jeder kann sich unter „Meine Einstellungen → Kalender" einen persönlichen Link
