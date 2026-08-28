@@ -124,17 +124,11 @@ fi
 # --single-transaction: ohne das ist der Dump bei InnoDB nicht konsistent, wenn
 # während des Laufs geschrieben wird.
 #
-# --skip-dump-date: ohne das schreibt mysqldump die Uhrzeit in die letzte
-# Zeile. Damit unterscheidet sich jeder Dump von jedem anderen, und es
-# entsteht bei jedem Lauf ein Commit - auch an einem Tag, an dem sich nichts
-# geändert hat. Die Zeile "-- Dump completed" bleibt erhalten, die Prüfung
-# unten greift weiterhin.
-#
 # Erst in eine temporäre Datei: die alte Sicherung darf nicht schon leer sein,
 # bevor klar ist, dass die neue etwas enthält.
 DUMP_TMP="$TMP_DIR/dump.sql"
 if ! mysqldump --defaults-extra-file="$DEFAULTS" --single-transaction --quick \
-	--skip-dump-date --default-character-set=utf8mb4 "$DB_NAME" > "$DUMP_TMP" 2> "$TMP_DIR/fehler.txt"; then
+	--default-character-set=utf8mb4 "$DB_NAME" > "$DUMP_TMP" 2> "$TMP_DIR/fehler.txt"; then
 	abbruch "mysqldump: $(tr '\n' ' ' < "$TMP_DIR/fehler.txt")"
 fi
 
