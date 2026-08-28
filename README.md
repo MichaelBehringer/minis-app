@@ -175,11 +175,119 @@ Aus der Crontab (`sudo crontab -e`):
 
 ```cron
 30 2 * * * sh /home/ubuntu/minis-app/certs/cert.sh
+0 */8 * * * /home/ubuntu/minis-app/backup/backup.sh
 ```
 
 `certs/cert.sh` erneuert das Zertifikat **und lädt nginx neu**. Der Reload ist
 der entscheidende Schritt: nginx liest Zertifikate nur beim Start, ohne ihn
 würde nach einer Erneuerung weiter das alte ausgeliefert.
+
+## Sicherung
+
+`backup/backup.sh` erzeugt zwei Dinge in `/root/minis-backup` und committet sie
+in das dortige Git-Repository — dasselbe Verfahren wie in atw-app, die Skripte
+sind bis auf Namen, Pfade und den Punkt unten Zeile für Zeile dieselben:
+
+- `dump.sql` — vollständiger `mysqldump`, das ist die Grundlage zum
+  Zurückspielen.
+- `csv/<tabelle>.csv` — je Tabelle eine Datei zum Lesen und Auswerten, etwa in
+  einer Tabellenkalkulation, mit dem vollständigen Inhalt. Praktischer
+  Nebeneffekt: im Git-Diff ist auf einen Blick zu sehen, was sich seit der
+  letzten Sicherung geändert hat.
+
+Vorbereitung: das Repository muss existieren und ein Remote haben, sonst bricht
+das Skript beim Hochladen ab.
+
+```bash
+mkdir -p /root/minis-backup && cd /root/minis-backup
+git init && git remote add origin <adresse>
+```
+
+### Woher der Zugang kommt
+
+Adresse, Benutzer, Passwort und Datenbankname liest das Skript aus
+`MINIS_DB_DSN` in der `.env`, damit sie nur an einer Stelle stehen. Daraus
+ergeben sich zwei Wege:
+
+| Datenbank | Weg |
+|---|---|
+| **außerhalb der VM** (der Fall hier) | Anmeldung mit dem Zugang aus dem DSN, über die Adresse aus dem DSN |
+| auf der VM selbst (`localhost`, `127.0.0.1`, `host.docker.internal`) | ohne Benutzernamen über den Unix-Socket; MariaDB erkennt den aufrufenden Systembenutzer (`root`) |
+
+**Das ist der einzige Unterschied zu atw-app.** Dort liegt die Datenbank auf
+derselben VM, deshalb kennt das Skript dort nur den Socket-Weg. Hier steht im
+DSN eine externe Adresse — über den Socket ist sie nicht erreichbar.
+
+Zugang und Adresse gehen über eine temporäre Datei an `mysqldump`, nicht über
+die Kommandozeile: Argumente sind in `ps` für jeden Nutzer des Systems sichtbar.
+
+Soll für die Sicherung ein anderes Konto verwendet werden als das der
+Anwendung, geht das über die `.env`:
+
+```
+MINIS_BACKUP_DB_USER=…
+MINIS_BACKUP_DB_PASSWORD=…
+```
+
+### Meldung, wenn es schiefgeht
+
+Ein Backup, dessen Ausfall niemand bemerkt, ist keins. Wenn in der `.env` ein
+Thema hinterlegt ist, meldet sich das Skript bei jedem Fehler über ntfy:
+
+```
+MINIS_BACKUP_NTFY_TOPIC=ein-eigenes-thema-fuer-meldungen
+```
+
+Gemeldet wird jeder Schritt: ein fehlgeschlagener `mysqldump`, ein leerer oder
+unvollständiger Dump, ein Fehler beim CSV-Export, und — der Fall, der sonst
+unbemerkt bleibt — ein **fehlgeschlagenes `git push`**. Der Commit liegt dann
+lokal, und die Sicherung ist faktisch beendet, ohne dass es auffällt.
+
+### Zurückspielen
+
+Einmal ausprobieren, solange nichts brennt. Ein Backup, das nie zurückgespielt
+wurde, ist eine Vermutung:
+
+```bash
+# In eine Testdatenbank, nicht über den Bestand
+mariadb -e "CREATE DATABASE minis_test"
+mariadb minis_test < /root/minis-backup/dump.sql
+
+# Gegenprobe: gleiche Zeilenzahl wie im Original?
+mariadb -e "SELECT COUNT(*) FROM minis.plan"
+mariadb -e "SELECT COUNT(*) FROM minis_test.plan"
+
+mariadb -e "DROP DATABASE minis_test"
+```
+
+Im Ernstfall auf den Bestand, mit einem älteren Stand aus der Historie:
+
+```bash
+cd /root/minis-backup
+git log --oneline                 # gewünschten Stand suchen
+git show <commit>:dump.sql > /tmp/wiederherstellung.sql
+docker compose -f /root/minis-app/docker-compose.yml stop server
+mariadb minis < /tmp/wiederherstellung.sql
+docker compose -f /root/minis-app/docker-compose.yml start server
+```
+
+### Was dieses Verfahren leistet und was nicht
+
+- **Auswärtige Ablage:** ja, das Git-Remote liegt nicht auf der VM. Ein
+  Totalverlust der VM ist abgedeckt.
+- **Aufbewahrung:** die Git-Historie, also unbegrenzt. Alte Stände lassen sich
+  nicht löschen, das Repository wächst dauerhaft. Ein Lauf ohne Änderungen
+  committet nichts (`--skip-dump-date`), es entsteht also nicht dreimal am Tag
+  ein Eintrag ohne Inhalt.
+- **Datenverlust im Ernstfall:** bis zu 8 Stunden.
+- **Personenbezogene Daten:** Dump und CSV enthalten Namen, Kontaktdaten und —
+  solange die Passwörter nicht gehasht sind — die Passwörter im Klartext. Von
+  61 Konten, überwiegend Kinder. Beides liegt damit dauerhaft und praktisch
+  unlöschbar beim Anbieter des Git-Remotes. Das ist eine bewusste Entscheidung;
+  der wirksame Hebel dagegen ist nicht das Backup, sondern die Passwörter zu
+  hashen. Soll eine Spalte doch aus den CSVs herausbleiben, geht das über
+  `AUSGESCHLOSSEN` in `backup/export_csv.py` — der Dump kann sie nicht
+  auslassen, weil er sonst zum Zurückspielen unbrauchbar wäre.
 
 ## Datenbank
 
@@ -286,4 +394,3 @@ Durchprobieren ist damit in Sekunden erledigt. Eine Sperre nach wenigen
 Fehlversuchen pro Benutzername und IP fasst die Passwörter nicht an und nimmt
 dem Problem die Spitze — sie ist der naheliegende nächste Schritt.
 
-Ein Backup-Konzept gibt es bisher nicht.
